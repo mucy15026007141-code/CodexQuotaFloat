@@ -13,16 +13,18 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
     private ConnectionState _state = ConnectionState.Starting;
     private bool _isExpanded;
     private bool _isRefreshing;
+    private bool _monitorStarted;
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public FloatingViewModel(UsageMonitorService monitor)
+    public FloatingViewModel(UsageMonitorService monitor, bool startMonitor = true)
     {
         _monitor = monitor;
         _monitor.Updated += snapshot => OnUi(() => { _snapshot = snapshot; RaiseAll(); });
         _monitor.StateChanged += state => OnUi(() => { _state = state; RaiseAll(); });
         RefreshCommand = new AsyncCommand(RefreshAsync, () => !IsRefreshing);
         ToggleExpandedCommand = new RelayCommand(() => { IsExpanded = !IsExpanded; });
-        _ = _monitor.StartAsync(); _ = TickAsync();
+        if (startMonitor) StartMonitoring();
+        _ = TickAsync();
     }
 
     public ICommand RefreshCommand { get; }
@@ -44,6 +46,19 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
     public string LastSuccessfulUpdate => _snapshot is null ? "暂不可用" : _snapshot.RetrievedAt.ToString("HH:mm:ss");
     public string ExpandButtonText => IsExpanded ? "收起 ˄" : "展开 ˅";
     public string RefreshButtonText => IsRefreshing ? "刷新中…" : "刷新";
+
+    public void StartMonitoring()
+    {
+        if (_monitorStarted) return;
+        _monitorStarted = true;
+        _ = _monitor.StartAsync();
+    }
+
+    public void ShowConfigurationRequired()
+    {
+        _state = ConnectionState.UnsupportedAccount;
+        RaiseAll();
+    }
 
     private async Task RefreshAsync() { IsRefreshing = true; try { await _monitor.RefreshAsync(); } finally { IsRefreshing = false; } }
     private async Task TickAsync() { while (true) { await Task.Delay(1000); OnUi(RaiseAll); } }

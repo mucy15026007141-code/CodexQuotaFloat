@@ -11,4 +11,6 @@ public partial class SetupWizardWindow : Window
         DataContext = viewModel;
         viewModel.SetupSucceeded += () => Dispatcher.Invoke(Close);
     }
+
+    private void LaterButton_Click(object sender, RoutedEventArgs e) => Close();
 }

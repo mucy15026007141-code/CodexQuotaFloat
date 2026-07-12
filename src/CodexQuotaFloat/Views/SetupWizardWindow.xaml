@@ -21,7 +21,7 @@
       <Button Style="{StaticResource DarkActionButton}" Content="打开日志目录" Command="{Binding OpenLogsCommand}" Visibility="{Binding ShowDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="5"/>
       <Button Style="{StaticResource DarkActionButton}" Content="复制诊断信息" Command="{Binding CopyDiagnosticsCommand}" Visibility="{Binding ShowDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="5"/>
       <Button Style="{StaticResource DarkActionButton}" Content="重新检测" Command="{Binding RetryCommand}" Margin="5"/>
-      <Button Style="{StaticResource DarkActionButton}" Content="稍后设置" IsCancel="True" Margin="5"/>
+      <Button Style="{StaticResource DarkActionButton}" Content="稍后设置" IsCancel="True" Click="LaterButton_Click" Margin="5"/>
     </WrapPanel>
   </Grid>
 </Window>

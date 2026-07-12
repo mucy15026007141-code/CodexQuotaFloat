@@ -6,10 +6,10 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $projectRoot 'CodexQuotaFloat.slnx'
 $project = Join-Path $projectRoot 'src\CodexQuotaFloat\CodexQuotaFloat.csproj'
 $testProject = Join-Path $projectRoot 'tests\CodexQuotaFloat.Tests\CodexQuotaFloat.Tests.csproj'
-$release = Join-Path $projectRoot 'release\CodexQuotaFloat-1.1.0-win-x64'
+$release = Join-Path $projectRoot 'release\CodexQuotaFloat-1.1.1-win-x64'
 $dist = Join-Path $projectRoot 'dist'
 $installer = Join-Path $projectRoot 'installer\CodexQuotaFloat.iss'
-$package = Join-Path $dist 'CodexQuotaFloat-Setup-1.1.0-win-x64.exe'
+$package = Join-Path $dist 'CodexQuotaFloat-Setup-1.1.1-win-x64.exe'
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw '未找到 Git。' }
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw '未找到 .NET SDK。' }

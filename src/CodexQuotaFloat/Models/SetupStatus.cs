@@ -2,6 +2,7 @@ namespace CodexQuotaFloat.Models;
 
 public enum SetupStatus
 {
+    Checking,
     Ready,
     CodexNotFound,
     VersionTooOld,
