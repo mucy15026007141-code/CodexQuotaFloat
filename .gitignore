@@ -3,6 +3,7 @@ bin/
 obj/
 artifacts/
 release/
+dist/
 publish/
 TestResults/
 

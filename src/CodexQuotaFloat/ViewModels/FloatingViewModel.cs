@@ -33,6 +33,7 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
     public int WeekPercent => _snapshot?.Weekly?.RemainingPercent ?? 0;
     public string FiveCompactPercent => _snapshot?.FiveHour is { } window ? $"{window.RemainingPercent}%" : "--";
     public string WeekCompactPercent => _snapshot?.Weekly is { } window ? $"{window.RemainingPercent}%" : "--";
+    public string CompactTitle => _state is ConnectionState.CodexNotFound or ConnectionState.NotLoggedIn or ConnectionState.UnsupportedAccount ? "Codex 需要配置" : "Codex 剩余额度";
     public string FiveCountdown => _snapshot?.FiveHour is { } window ? Until(window) : "暂不可用";
     public string WeekCountdown => _snapshot?.Weekly is { } window ? Until(window) : "暂不可用";
     public string FiveResetAt => FormatReset(_snapshot?.FiveHour);
@@ -49,7 +50,7 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
     private static string Until(RateLimitWindow window) => window.ResetLocal is { } reset ? (reset - DateTimeOffset.Now) switch { var span when span.TotalSeconds <= 0 => "即将刷新", var span when span.TotalDays >= 1 => $"{(int)span.TotalDays}天{span.Hours}小时后刷新", var span => $"{span.Hours}小时{span.Minutes}分钟后刷新" } : "刷新时间不可用";
     private static string FormatReset(RateLimitWindow? window) => window?.ResetLocal is { } reset ? (reset.Date == DateTimeOffset.Now.Date ? $"今天 {reset:HH:mm}" : $"{reset:M月d日 HH:mm}") : "暂不可用";
     private void OnUi(Action action) { if (System.Windows.Application.Current?.Dispatcher?.CheckAccess() == true) action(); else System.Windows.Application.Current?.Dispatcher?.Invoke(action); }
-    private void RaiseAll() { foreach (var property in new[] { nameof(FivePercent), nameof(WeekPercent), nameof(FiveCompactPercent), nameof(WeekCompactPercent), nameof(FiveCountdown), nameof(WeekCountdown), nameof(FiveResetAt), nameof(WeekResetAt), nameof(Plan), nameof(Status), nameof(UpdatedTime), nameof(LastSuccessfulUpdate) }) Raise(property); }
+    private void RaiseAll() { foreach (var property in new[] { nameof(FivePercent), nameof(WeekPercent), nameof(FiveCompactPercent), nameof(WeekCompactPercent), nameof(CompactTitle), nameof(FiveCountdown), nameof(WeekCountdown), nameof(FiveResetAt), nameof(WeekResetAt), nameof(Plan), nameof(Status), nameof(UpdatedTime), nameof(LastSuccessfulUpdate) }) Raise(property); }
     private void Raise(string property) => PropertyChanged?.Invoke(this, new(property));
 }
 

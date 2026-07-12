@@ -9,4 +9,7 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; }
     public bool EnableNotifications { get; set; } = true;
     public string LastDisplayState { get; set; } = "Compact";
+    public bool SetupCompleted { get; set; }
+    public string? LastDetectedCodexVersion { get; set; }
+    public DateTimeOffset? LastSetupCheckTime { get; set; }
 }

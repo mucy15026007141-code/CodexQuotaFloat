@@ -1,182 +1,53 @@
-\# CodexQuotaFloat
+# Codex 额度悬浮窗
 
+`CodexQuotaFloat` 是 Windows 桌面悬浮工具，用于显示本机 Codex CLI 所登录 ChatGPT 账号的 5 小时和每周剩余额度。当前版本：**v1.1.0**。
 
+本工具为非官方第三方工具，与 OpenAI 无隶属或背书关系。它使用自定义程序图标，不使用或复制 OpenAI、ChatGPT、Codex 官方商标图标。
 
-一个运行在 Windows 桌面上的 Codex 剩余额度悬浮窗工具，用于快速查看 Codex 的额度使用情况。
+## 系统要求
 
+- Windows 10/11 x64、网络连接
+- 已安装 Codex CLI（最低支持 `0.144.1`）
+- 使用自己的 ChatGPT 账号登录 Codex CLI
 
+## 安装与首次配置
 
-\## 项目简介
+运行 `CodexQuotaFloat-Setup-1.1.0-win-x64.exe`。安装不需要管理员权限，默认目录为 `%LocalAppData%\Programs\CodexQuotaFloat`。开始菜单快捷方式默认创建；桌面快捷方式和登录 Windows 时自动启动由安装器选项决定。
 
+首次运行时，程序会检查本机 Codex CLI、版本、登录状态和额度接口：
 
+1. 如果没有 CLI，点击“复制官方安装命令”并在自己打开的 PowerShell 中执行：
 
-CodexQuotaFloat 可以将 Codex 的剩余额度显示在桌面悬浮窗口中，减少频繁打开 Codex 查看额度的操作。
+   ```powershell
+   powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
+   ```
 
+   备用命令（需已有 Node.js）：`npm install -g @openai/codex`。
+2. 如果尚未登录，点击“开始登录”，在可见终端中完成 `codex login`。
+3. 登录后用 `codex login status` 确认状态，再回到程序点击“重新检测”。
 
+程序绝不在后台执行安装命令、自动登录、读取登录网页或保存密码。API Key 模式可能没有 ChatGPT 套餐的两类额度，向导会清楚提示并允许你自行重新登录。
 
-当前版本：
+## 使用、更新与卸载
 
+悬浮窗每 60 秒刷新一次，可展开查看详情和手动刷新；托盘菜单提供显示/隐藏、刷新、配置 Codex CLI、日志、开机启动和退出。再次运行新的安装包会覆盖程序文件并保留 `%LocalAppData%\CodexQuotaFloat\settings.json`、日志、窗口位置和开机启动偏好。卸载会删除程序、快捷方式和本程序的启动项，但默认保留上述用户数据；如需清除，可手动删除 `%LocalAppData%\CodexQuotaFloat`。
 
+## 隐私与安全
 
-```text
+- 程序仅与本机 Codex App Server 通信，不上传额度或账号数据到开发者服务器。
+- 不收集遥测，不保存 Codex 认证信息，不打包 CLI、`auth.json`、Token、Cookie、API Key、用户日志或用户设置。
+- 日志和“复制诊断信息”只保留应用版本、Windows 版本、CLI 路径/版本、连接状态、错误类型和时间，且会脱敏。
 
-v1.0.0
+## 未签名安装包
 
-主要功能
+当前安装包未进行商业代码签名，Windows 可能显示“未知发布者”或 SmartScreen 提示。请只从可信来源取得安装包，并使用同目录 `SHA256SUMS.txt` 中的 SHA-256 校验值确认文件来源。
 
-显示 Codex 剩余额度
+## 开发构建
 
-Windows 桌面悬浮窗口
-
-保持窗口置顶
-
-自动更新额度信息
-
-提供额度查询相关脚本
-
-包含基础测试项目
-
-项目结构
-
-CodexQuotaFloat
-
-├─ src/
-
-│  └─ CodexQuotaFloat/          主程序源码
-
-├─ tests/
-
-│  └─ CodexQuotaFloat.Tests/    测试项目
-
-├─ 转换器/                       数据转换相关功能
-
-├─ 浏览量/                       额度数据读取相关功能
-
-├─ 脚本/                         构建及辅助脚本
-
-├─ CodexQuotaFloat.slnx         解决方案文件
-
-├─ .gitignore                   Git 忽略规则
-
-└─ README.md                    项目说明
-
-运行环境
-
-Windows 11
-
-.NET
-
-Visual Studio 或兼容的 .NET 开发环境
-
-已安装 Codex 桌面应用
-
-使用方法
-
-下载或克隆本项目。
-
-使用 Visual Studio 打开 CodexQuotaFloat.slnx。
-
-编译并运行主程序。
-
-程序启动后，桌面上会显示 Codex 额度悬浮窗口。
-
-
-
-克隆仓库：
-
-
-
-git clone https://github.com/mucy15026007141-code/CodexQuotaFloat.git
-
-开发状态
-
-
-
-当前项目处于早期开发阶段，已经完成第一个可用版本。
-
-
-
-后续计划可能包括：
-
-
-
-优化悬浮窗口界面
-
-增加不同额度周期的显示
-
-增加低额度提醒
-
-增加系统托盘功能
-
-增加开机自动启动
-
-增加窗口透明度和主题设置
-
-增加额度消耗历史记录
-
-注意事项
-
-
-
-本项目不会在仓库中保存以下敏感信息：
-
-
-
-Codex 登录凭据
-
-Cookie
-
-Token
-
-API Key
-
-本地用户隐私数据
-
-
-
-使用或提交代码前，请确认没有将账号凭据上传到 GitHub。
-
-
-
-版本记录
-
-v1.0.0
-
-完成 Codex 剩余额度悬浮窗基础版本
-
-建立主程序项目
-
-建立测试项目
-
-添加相关脚本和辅助功能
-
-作者
-
-
-
-Mucy
-
-
-
-许可
-
-
-
-当前项目为个人学习和开发项目，暂未添加开源许可证。
-
-
-
-
-
-\## 保存后提交到 GitHub
-
-
-
-在项目目录打开 PowerShell：
-
-
+安装 Inno Setup 6 后执行：
 
 ```powershell
+.\scripts\Build-Installer.ps1
+```
 
-Set-Location "C:\\Users\\muche\\Projects\\CodexQuotaFloat"
-
+脚本会先运行 Release 测试，再发布自包含单文件到 `release\CodexQuotaFloat-1.1.0-win-x64\`，生成安装包与校验值到 `dist\`。构建产物不会提交到 Git。
