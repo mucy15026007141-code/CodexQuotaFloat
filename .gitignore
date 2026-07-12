@@ -3,18 +3,44 @@ bin/
 obj/
 artifacts/
 release/
+publish/
 TestResults/
 
-# Visual Studio / Rider
+# Visual Studio / Rider / VS Code
 .vs/
 .idea/
+.vscode/
 *.user
 *.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
 
 # Generated and temporary files
 generated-schema/
 *.log
 *.tmp
+*.temp
+*.cache
+
+# Local configuration and secrets
+.env
+.env.*
+appsettings.Local.json
+appsettings.Development.json
+secrets.json
+*.key
+*.pfx
+
+# Test and coverage output
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
 
 # OS files
 Thumbs.db
