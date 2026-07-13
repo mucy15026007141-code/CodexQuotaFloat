@@ -32,7 +32,7 @@
 
 ## 使用、更新与卸载
 
-悬浮窗每 60 秒刷新一次，可展开查看详情和手动刷新；托盘菜单提供显示/隐藏、刷新、配置 Codex CLI、日志、开机启动和退出。再次运行新的安装包会覆盖程序文件并保留 `%LocalAppData%\CodexQuotaFloat\settings.json`、日志、窗口位置和开机启动偏好。卸载会删除程序、快捷方式和本程序的启动项，但默认保留上述用户数据；如需清除，可手动删除 `%LocalAppData%\CodexQuotaFloat`。
+悬浮窗每 60 秒刷新一次，可展开查看详情和手动刷新；默认始终置顶但不抢键盘焦点，可在托盘关闭。窗口位置会在拖动结束后保存，靠近工作区边缘时吸附；显示器变化、睡眠唤醒或网络恢复后会自动修正位置并尝试重连。托盘菜单提供显示/隐藏、立即刷新、重新连接 Codex、始终置顶、重置窗口位置、配置 Codex CLI、开机启动、日志和退出。再次运行新的安装包会覆盖程序文件并保留 `%LocalAppData%\CodexQuotaFloat\settings.json`、日志、窗口位置和开机启动偏好。数据超过 5 分钟未成功刷新时会标记为过期；断网时保留上次额度，不会显示为 0。卸载会删除程序、快捷方式和本程序的启动项，但默认保留上述用户数据；如需清除，可手动删除 `%LocalAppData%\CodexQuotaFloat`。
 
 ## 隐私与安全
 
@@ -52,4 +52,4 @@
 .\scripts\Build-Installer.ps1
 ```
 
-脚本会先运行 Release 测试，再发布自包含单文件到 `release\CodexQuotaFloat-1.1.2-win-x64\`，生成安装包与校验值到 `dist\`。构建产物不会提交到 Git。
+脚本会先运行 Release 测试，再发布自包含单文件到 `release\CodexQuotaFloat-1.2.0-win-x64\`，生成 `CodexQuotaFloat-Setup-1.2.0-win-x64.exe` 与校验值到 `dist\`。构建产物不会提交到 Git。

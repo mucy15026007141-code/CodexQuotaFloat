@@ -34,16 +34,17 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
     public int FivePercent => _snapshot?.FiveHour.Availability == RateLimitAvailability.Available ? _snapshot.FiveHour.RemainingPercent : 0;
     public int WeekPercent => _snapshot?.Weekly.Availability == RateLimitAvailability.Available ? _snapshot.Weekly.RemainingPercent : 0;
     public string FiveCompactPercent => FormatWindowValue(_snapshot?.FiveHour);
-    public string WeekCompactPercent => FormatWindowValue(_snapshot?.Weekly);
+    public string WeekCompactPercent => FormatWindowValue(_snapshot?.Weekly) + (IsStale ? "  ⚠" : "");
     public string FiveDisplay => FormatWindowValue(_snapshot?.FiveHour);
     public string WeekDisplay => FormatWindowValue(_snapshot?.Weekly);
-    public string CompactTitle => _state is ConnectionState.CodexNotFound or ConnectionState.NotLoggedIn or ConnectionState.UnsupportedAccount ? "Codex 需要配置" : "Codex 剩余额度";
+    public bool IsStale => _state is ConnectionState.Stale or ConnectionState.Offline || (_snapshot is not null && DateTimeOffset.Now - _snapshot.RetrievedAt > TimeSpan.FromMinutes(5));
+    public string CompactTitle => _state == ConnectionState.NotLoggedIn ? "Codex 需要登录" : _state is ConnectionState.CodexNotFound or ConnectionState.UnsupportedAccount ? "Codex 需要配置" : "Codex 剩余额度";
     public string FiveCountdown => _snapshot?.FiveHour.Availability == RateLimitAvailability.Unlimited ? "当前无5小时限制" : _snapshot?.FiveHour is { } window && window.Availability == RateLimitAvailability.Available ? Until(window) : "暂不可用";
     public string WeekCountdown => _snapshot?.Weekly is { } window && window.Availability == RateLimitAvailability.Available ? Until(window) : "暂不可用";
     public string FiveResetAt => FormatReset(_snapshot?.FiveHour);
     public string WeekResetAt => FormatReset(_snapshot?.Weekly);
     public string Plan => _snapshot?.PlanType ?? "暂不可用";
-    public string Status => _state switch { ConnectionState.Connected => "已连接", ConnectionState.Refreshing => "正在刷新", ConnectionState.CodexNotFound => "未找到 Codex CLI", ConnectionState.NotLoggedIn => "Codex 尚未登录", ConnectionState.Stale => "数据可能已过期", ConnectionState.Faulted => "连接失败", _ => "正在连接" };
+    public string Status => _state switch { ConnectionState.Connected when IsStale => "数据可能已过期", ConnectionState.Connected => "已连接", ConnectionState.Refreshing => "正在刷新", ConnectionState.Offline => "网络不可用，显示上次数据", ConnectionState.CodexNotFound => "未找到 Codex CLI", ConnectionState.NotLoggedIn => "Codex 尚未登录", ConnectionState.Stale => "数据可能已过期", ConnectionState.Faulted => "连接失败", _ => "正在连接" };
     public string UpdatedTime => _snapshot is null ? "未更新" : $"{_snapshot.RetrievedAt:HH:mm} 更新";
     public string LastSuccessfulUpdate => _snapshot is null ? "暂不可用" : _snapshot.RetrievedAt.ToString("HH:mm:ss");
     public string ExpandButtonText => IsExpanded ? "收起 ˄" : "展开 ˅";
@@ -62,13 +63,18 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
         RaiseAll();
     }
 
+    public void ResetToCompact() => IsExpanded = false;
+    public void RestoreExpanded(bool expanded) => IsExpanded = expanded;
+    public void NotifyWindowDragCompleted() => PropertyChanged?.Invoke(this, new(nameof(WindowDragCompleted)));
+    public string WindowDragCompleted => string.Empty;
+
     private async Task RefreshAsync() { IsRefreshing = true; try { await _monitor.RefreshAsync(); } finally { IsRefreshing = false; } }
     private async Task TickAsync() { while (true) { await Task.Delay(1000); OnUi(RaiseAll); } }
     private static string Until(RateLimitWindow window) => window.ResetLocal is { } reset ? (reset - DateTimeOffset.Now) switch { var span when span.TotalSeconds <= 0 => "即将刷新", var span when span.TotalDays >= 1 => $"{(int)span.TotalDays}天{span.Hours}小时后刷新", var span => $"{span.Hours}小时{span.Minutes}分钟后刷新" } : "刷新时间不可用";
     public static string FormatWindowValue(RateLimitWindow? window) => window?.Availability == RateLimitAvailability.Available ? $"{window.RemainingPercent}%" : window?.Availability == RateLimitAvailability.Unlimited ? "不限" : "暂不可用";
     private static string FormatReset(RateLimitWindow? window) => window?.Availability == RateLimitAvailability.Available && window.ResetLocal is { } reset ? (reset.Date == DateTimeOffset.Now.Date ? $"今天 {reset:HH:mm}" : $"{reset:M月d日 HH:mm}") : "暂不可用";
     private void OnUi(Action action) { if (System.Windows.Application.Current?.Dispatcher?.CheckAccess() == true) action(); else System.Windows.Application.Current?.Dispatcher?.Invoke(action); }
-    private void RaiseAll() { foreach (var property in new[] { nameof(FivePercent), nameof(WeekPercent), nameof(FiveCompactPercent), nameof(WeekCompactPercent), nameof(FiveDisplay), nameof(WeekDisplay), nameof(CompactTitle), nameof(FiveCountdown), nameof(WeekCountdown), nameof(FiveResetAt), nameof(WeekResetAt), nameof(Plan), nameof(Status), nameof(UpdatedTime), nameof(LastSuccessfulUpdate) }) Raise(property); }
+    private void RaiseAll() { foreach (var property in new[] { nameof(FivePercent), nameof(WeekPercent), nameof(FiveCompactPercent), nameof(WeekCompactPercent), nameof(FiveDisplay), nameof(WeekDisplay), nameof(CompactTitle), nameof(IsStale), nameof(FiveCountdown), nameof(WeekCountdown), nameof(FiveResetAt), nameof(WeekResetAt), nameof(Plan), nameof(Status), nameof(UpdatedTime), nameof(LastSuccessfulUpdate) }) Raise(property); }
     private void Raise(string property) => PropertyChanged?.Invoke(this, new(property));
 }
 

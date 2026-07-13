@@ -12,6 +12,8 @@ public partial class FloatingWindow : Window
     private const double CompactHeight = 46;
     private const double ExpandedHeight = 230;
     private int _transitionVersion;
+    public const double CompactWindowHeight = CompactHeight;
+    public const double ExpandedWindowHeight = ExpandedHeight;
 
     public FloatingWindow()
     {
@@ -83,7 +85,11 @@ public partial class FloatingWindow : Window
 
     private void HeaderDrag(object sender, MouseButtonEventArgs e)
     {
-        if (e.LeftButton == MouseButtonState.Pressed && !IsButtonSource(e.OriginalSource as DependencyObject)) DragMove();
+        if (e.LeftButton == MouseButtonState.Pressed && !IsButtonSource(e.OriginalSource as DependencyObject))
+        {
+            DragMove();
+            (DataContext as FloatingViewModel)?.NotifyWindowDragCompleted();
+        }
     }
 
     private static bool IsButtonSource(DependencyObject? source)

@@ -1,3 +1,3 @@
 namespace CodexQuotaFloat.Models;
 
-public enum ConnectionState { Starting, Connecting, Connected, Refreshing, Stale, CodexNotFound, NotLoggedIn, UnsupportedAccount, Unavailable, Faulted }
+public enum ConnectionState { Starting, Connecting, Connected, Refreshing, Stale, Offline, CodexNotFound, NotLoggedIn, UnsupportedAccount, Unavailable, Faulted }

@@ -18,6 +18,8 @@ public sealed class SettingsService
     }
     public async Task SaveAsync(AppSettings settings)
     {
+        settings.Left = NormalizeCoordinate(settings.Left);
+        settings.Top = NormalizeCoordinate(settings.Top);
         Directory.CreateDirectory(_directory);
         var temp = SettingsPath + ".tmp";
         await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(settings, SerializerOptions));
@@ -25,4 +27,6 @@ public sealed class SettingsService
     }
 
     public static string SerializeForTesting(AppSettings settings) => JsonSerializer.Serialize(settings, SerializerOptions);
+
+    private static double NormalizeCoordinate(double value) => WindowPositionService.IsFinite(value) ? value : double.NaN;
 }

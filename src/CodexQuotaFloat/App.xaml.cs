@@ -3,11 +3,16 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
+using Microsoft.Win32;
+using System.Net.NetworkInformation;
 using Forms = System.Windows.Forms;
 using CodexQuotaFloat.Models;
 using CodexQuotaFloat.Services;
 using CodexQuotaFloat.ViewModels;
 using CodexQuotaFloat.Views;
+using WpfPoint = System.Windows.Point;
+using WpfSize = System.Windows.Size;
 
 namespace CodexQuotaFloat;
 
@@ -30,6 +35,15 @@ public partial class App : System.Windows.Application
     private LogService? _log;
     private StartupService? _startup;
     private bool _exiting;
+    private readonly SettingsService _settingsService = new();
+    private AppSettings _settings = new();
+    private DispatcherTimer? _positionSaveTimer;
+    private Forms.ToolStripMenuItem? _topmostItem;
+    private Forms.ToolStripMenuItem? _toggleItem;
+    private Forms.ToolStripMenuItem? _reconnectItem;
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+    private static readonly nint HwndTopmost = new(-1), HwndNotTopmost = new(-2);
+    private const uint SwpNoActivate = 0x0010, SwpNoMove = 0x0002, SwpNoSize = 0x0001;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -54,6 +68,9 @@ public partial class App : System.Windows.Application
         {
             InitializeSignals();
             InitializeTray();
+            SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+            SystemEvents.PowerModeChanged += OnPowerModeChanged;
+            NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
             _ = BeginStartupAsync();
         }
         catch (Exception ex)
@@ -96,12 +113,21 @@ public partial class App : System.Windows.Application
         _startup = new StartupService();
         _tray = new Forms.NotifyIcon { Icon = LoadTrayIcon(), Visible = true, Text = "Codex 额度悬浮窗" };
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("显示/隐藏", null, (_, _) => Toggle());
+        _toggleItem = new Forms.ToolStripMenuItem("显示", null, (_, _) => Toggle());
+        menu.Items.Add(_toggleItem);
         menu.Items.Add("立即刷新", null, async (_, _) => { if (_monitor is not null) await _monitor.RefreshAsync(); });
+        _reconnectItem = new Forms.ToolStripMenuItem("重新连接 Codex", null, async (_, _) => await ReconnectAsync("tray"));
+        menu.Items.Add(_reconnectItem);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        _topmostItem = new Forms.ToolStripMenuItem("始终置顶") { CheckOnClick = true };
+        _topmostItem.Click += (_, _) => SetAlwaysOnTop(_topmostItem.Checked, true);
+        menu.Items.Add(_topmostItem);
+        menu.Items.Add(new Forms.ToolStripMenuItem("重置窗口位置", null, (_, _) => ResetWindowPosition()));
+        menu.Items.Add("配置 Codex CLI", null, (_, _) => ShowSetupWizard());
         var startupItem = new Forms.ToolStripMenuItem("开机启动") { Checked = _startup.IsEnabled(), CheckOnClick = true };
         startupItem.CheckedChanged += (_, _) => { try { _startup.SetEnabled(startupItem.Checked); startupItem.Checked = _startup.IsEnabled(); } catch { startupItem.Checked = _startup.IsEnabled(); } };
         menu.Items.Add(startupItem);
-        menu.Items.Add("配置 Codex CLI", null, (_, _) => ShowSetupWizard());
+        menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("打开日志目录", null, (_, _) => OpenLogDirectory());
         menu.Items.Add("退出", null, async (_, _) => await ExitAsync());
         _tray.ContextMenuStrip = menu;
@@ -113,7 +139,9 @@ public partial class App : System.Windows.Application
     {
         try
         {
-            var settings = await new SettingsService().LoadAsync();
+            var settings = await _settingsService.LoadAsync();
+            _settings = settings;
+            UpdateTopmostMenu();
             if (StartupFlow.InitialPresentation(shutdownRequested: false, setupCompleted: settings.SetupCompleted) == StartupPresentation.FloatingWindow)
             {
                 CreateAndShowFloating(startMonitor: true);
@@ -179,8 +207,27 @@ public partial class App : System.Windows.Application
             _monitor = new UsageMonitorService(_log!);
             _floatingViewModel = new FloatingViewModel(_monitor, startMonitor);
             _window = new FloatingWindow { DataContext = _floatingViewModel };
+            if (WindowPositionService.IsFinite(_settings.Left)) _window.Left = _settings.Left;
+            if (WindowPositionService.IsFinite(_settings.Top)) _window.Top = _settings.Top;
+            _floatingViewModel.RestoreExpanded(_settings.IsExpanded);
             MainWindow = _window;
             _window.Closing += (_, args) => { args.Cancel = true; _window.Hide(); };
+            _window.SourceInitialized += (_, _) => ApplyTopmost();
+            _window.LocationChanged += (_, _) => SchedulePositionSave();
+            _floatingViewModel.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(FloatingViewModel.IsExpanded))
+                {
+                    _settings.IsExpanded = _floatingViewModel.IsExpanded;
+                    Dispatcher.BeginInvoke(EnsureWindowInWorkArea);
+                    SchedulePositionSave();
+                }
+                else if (args.PropertyName == nameof(FloatingViewModel.WindowDragCompleted))
+                {
+                    SnapWindowToWorkArea();
+                    SchedulePositionSave();
+                }
+            };
             _log!.Write("Floating window created");
             if (startMonitor) _log.Write("Usage monitor started");
             else _floatingViewModel.ShowConfigurationRequired();
@@ -204,15 +251,97 @@ public partial class App : System.Windows.Application
     private void Toggle()
     {
         if (_window is null) { CreateAndShowFloating(startMonitor: false); return; }
-        if (_window.IsVisible) _window.Hide(); else ShowWindow();
+        if (_window.IsVisible) { _window.Hide(); UpdateToggleMenu(); } else ShowWindow();
     }
 
     private void ShowWindow()
     {
         if (_window is null) return;
         _window.Show();
-        _window.Activate();
-        _window.Topmost = true;
+        EnsureWindowInWorkArea();
+        ApplyTopmost();
+        UpdateToggleMenu();
+    }
+
+    private void SetAlwaysOnTop(bool enabled, bool persist)
+    {
+        _settings.IsTopmost = enabled;
+        if (_window is not null) { _window.Topmost = enabled; ApplyTopmost(); }
+        _log?.Write($"Always-on-top {(enabled ? "enabled" : "disabled")}");
+        if (persist) _ = _settingsService.SaveAsync(_settings);
+        UpdateTopmostMenu();
+    }
+
+    private void ApplyTopmost()
+    {
+        if (_window is null || !_window.IsLoaded) return;
+        _window.Topmost = _settings.IsTopmost;
+        var handle = new System.Windows.Interop.WindowInteropHelper(_window).Handle;
+        if (handle != nint.Zero) SetWindowPos(handle, _settings.IsTopmost ? HwndTopmost : HwndNotTopmost, 0, 0, 0, 0, SwpNoActivate | SwpNoMove | SwpNoSize);
+    }
+
+    private void UpdateTopmostMenu() { if (_topmostItem is not null) _topmostItem.Checked = _settings.IsTopmost; }
+    private void UpdateToggleMenu() { if (_toggleItem is not null) _toggleItem.Text = _window?.IsVisible == true ? "隐藏" : "显示"; }
+    private Forms.Screen CurrentScreen() => Forms.Screen.FromPoint(new System.Drawing.Point((int)Math.Round(_window?.Left ?? 0), (int)Math.Round(_window?.Top ?? 0)));
+    private WorkArea CurrentWorkArea()
+    {
+        var bounds = CurrentScreen().WorkingArea;
+        return new(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+    }
+    private void EnsureWindowInWorkArea()
+    {
+        if (_window is null) return;
+        var area = CurrentWorkArea();
+        var size = new WpfSize(_window.ActualWidth > 0 ? _window.ActualWidth : _window.Width, _window.ActualHeight > 0 ? _window.ActualHeight : _window.Height);
+        var point = WindowPositionService.Restore(new WpfPoint(_window.Left, _window.Top), size, area);
+        _window.Left = point.X; _window.Top = point.Y; _settings.LastMonitorDeviceName = CurrentScreen().DeviceName;
+    }
+    private void SnapWindowToWorkArea()
+    {
+        if (_window is null) return;
+        var size = new WpfSize(_window.ActualWidth > 0 ? _window.ActualWidth : _window.Width, _window.ActualHeight > 0 ? _window.ActualHeight : _window.Height);
+        var point = WindowPositionService.Snap(new WpfPoint(_window.Left, _window.Top), size, CurrentWorkArea());
+        _window.Left = point.X; _window.Top = point.Y;
+    }
+    private void SchedulePositionSave()
+    {
+        if (_window is null || !_window.IsVisible) return;
+        _positionSaveTimer ??= new DispatcherTimer();
+        _positionSaveTimer.Interval = TimeSpan.FromMilliseconds(500);
+        _positionSaveTimer.Stop(); _positionSaveTimer.Tick -= PositionSaveTimerTick; _positionSaveTimer.Tick += PositionSaveTimerTick; _positionSaveTimer.Start();
+    }
+    private async void PositionSaveTimerTick(object? sender, EventArgs e) { _positionSaveTimer?.Stop(); await SaveWindowPositionAsync(); }
+    private async Task SaveWindowPositionAsync()
+    {
+        if (_window is null || !WindowPositionService.IsFinite(_window.Left) || !WindowPositionService.IsFinite(_window.Top)) return;
+        _settings.Left = _window.Left; _settings.Top = _window.Top; _settings.IsExpanded = _floatingViewModel?.IsExpanded == true;
+        await _settingsService.SaveAsync(_settings);
+    }
+    private void ResetWindowPosition()
+    {
+        if (_window is null) { CreateAndShowFloating(_floatingViewModel is not null); }
+        if (_window is null) return;
+        _floatingViewModel?.ResetToCompact();
+        var point = WindowPositionService.DefaultPosition(new WpfSize(_window.Width, FloatingWindow.CompactWindowHeight), CurrentWorkArea());
+        _window.Left = point.X; _window.Top = point.Y; ShowWindow(); _ = SaveWindowPositionAsync(); _log?.Write("Window position reset");
+    }
+    private async Task ReconnectAsync(string reason)
+    {
+        if (_monitor is null || _exiting) return;
+        _reconnectItem?.Enabled = false; _reconnectItem?.Text = "正在重新连接…";
+        try { await _monitor.ReconnectAsync(reason); ApplyTopmost(); }
+        finally { _reconnectItem?.Text = "重新连接 Codex"; _reconnectItem?.Enabled = true; }
+    }
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(() => { EnsureWindowInWorkArea(); ApplyTopmost(); SchedulePositionSave(); _log?.Write("Display settings changed"); });
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == PowerModes.Suspend) { _log?.Write("System suspend detected"); _monitor?.MarkOffline(); }
+        else if (e.Mode == PowerModes.Resume) { _log?.Write("System resume detected"); _ = Dispatcher.InvokeAsync(async () => { await Task.Delay(3000); await ReconnectAsync("resume"); _log?.Write("Reconnect succeeded after resume"); }); }
+    }
+    private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
+    {
+        if (!e.IsAvailable) { _log?.Write("Network unavailable"); _monitor?.MarkOffline(); return; }
+        _log?.Write("Network available"); _ = Dispatcher.InvokeAsync(async () => { await Task.Delay(2500); await ReconnectAsync("network"); });
     }
 
     private void OpenLogDirectory()
@@ -226,6 +355,7 @@ public partial class App : System.Windows.Application
         _exiting = true;
         if (_tray is not null) _tray.Visible = false;
         if (_monitor is not null) await _monitor.DisposeAsync();
+        await SaveWindowPositionAsync();
         Shutdown();
     }
 
@@ -264,6 +394,9 @@ public partial class App : System.Windows.Application
         if (_ownsMutex) _instanceMutex?.ReleaseMutex();
         _instanceMutex?.Dispose();
         _tray?.Dispose();
+        SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
         _log?.Write("Application exited");
         base.OnExit(e);
     }

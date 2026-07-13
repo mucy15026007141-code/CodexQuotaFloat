@@ -8,14 +8,45 @@ public sealed class UsageMonitorService : IAsyncDisposable
 {
     private readonly CodexExecutableLocator _locator = new(); private readonly LogService _log;
     private JsonRpcConnection? _connection; private CancellationTokenSource? _stop; private string? _plan;
+    private Task? _loopTask; private readonly SemaphoreSlim _operationGate = new(1, 1); private bool _shuttingDown;
+    public bool IsRefreshing { get; private set; }
     public event Action<UsageSnapshot>? Updated; public event Action<ConnectionState>? StateChanged;
     public UsageMonitorService(LogService log) => _log = log;
-    public Task StartAsync() { _stop = new(); _ = Task.Run(() => LoopAsync(_stop.Token)); return Task.CompletedTask; }
+    public Task StartAsync()
+    {
+        if (_loopTask is not null) return Task.CompletedTask;
+        _stop = new(); _loopTask = Task.Run(() => LoopAsync(_stop.Token)); return Task.CompletedTask;
+    }
+    public async Task ReconnectAsync(string reason)
+    {
+        await _operationGate.WaitAsync();
+        try
+        {
+            if (_shuttingDown) return;
+            _log.Write("Reconnect started: " + reason);
+            _stop?.Cancel();
+            if (_connection is not null) await _connection.DisposeAsync();
+            if (_loopTask is not null) { try { await _loopTask; } catch { } }
+            _connection = null; _stop?.Dispose(); _stop = new();
+            _loopTask = Task.Run(() => LoopAsync(_stop.Token));
+            _log.Write("Reconnect succeeded");
+        }
+        catch (Exception ex) { _log.Write("Reconnect failed: " + ex.GetType().Name); StateChanged?.Invoke(ConnectionState.Faulted); }
+        finally { _operationGate.Release(); }
+    }
+    public void MarkOffline() { StateChanged?.Invoke(ConnectionState.Offline); }
     public async Task RefreshAsync()
     {
-        if (_connection is null) return;
-        StateChanged?.Invoke(ConnectionState.Refreshing);
-        try { var limits = await _connection.RequestAsync("account/rateLimits/read", new { }); Publish(UsageParser.Parse(limits, _plan), false); StateChanged?.Invoke(ConnectionState.Connected); _log.Write("Quota refresh succeeded."); } catch (Exception ex) { _log.Write("Quota refresh failed: " + ex.GetType().Name); StateChanged?.Invoke(ConnectionState.Stale); }
+        if (!await _operationGate.WaitAsync(0)) return;
+        try
+        {
+            if (_connection is null) return;
+            IsRefreshing = true; StateChanged?.Invoke(ConnectionState.Refreshing);
+            try { var limits = await _connection.RequestAsync("account/rateLimits/read", new { }); Publish(UsageParser.Parse(limits, _plan), false); StateChanged?.Invoke(ConnectionState.Connected); _log.Write("Quota refresh succeeded."); }
+            catch (Exception ex) { _log.Write("Quota refresh failed: " + ex.GetType().Name); StateChanged?.Invoke(ConnectionState.Stale); }
+            finally { IsRefreshing = false; }
+        }
+        finally { _operationGate.Release(); }
     }
     private async Task LoopAsync(CancellationToken token)
     {
@@ -57,5 +88,5 @@ public sealed class UsageMonitorService : IAsyncDisposable
         if (!snapshot.IsStructureSupported) _log.Write("Rate-limit structure unsupported");
     }
     private static string? GetPlan(JsonElement account) => account.TryGetProperty("account", out var a) && a.TryGetProperty("planType", out var p) ? p.GetString() : null;
-    public async ValueTask DisposeAsync() { _stop?.Cancel(); if (_connection is not null) await _connection.DisposeAsync(); _stop?.Dispose(); }
+    public async ValueTask DisposeAsync() { _shuttingDown = true; _stop?.Cancel(); if (_connection is not null) await _connection.DisposeAsync(); if (_loopTask is not null) { try { await _loopTask; } catch { } } _stop?.Dispose(); _operationGate.Dispose(); }
 }

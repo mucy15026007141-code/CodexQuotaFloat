@@ -6,6 +6,9 @@ public sealed class AppSettings
     public double Top { get; set; } = double.NaN;
     public bool IsExpanded { get; set; }
     public bool IsTopmost { get; set; } = true;
+    public string? LastMonitorDeviceName { get; set; }
+    public DateTimeOffset? LastSuccessfulRefresh { get; set; }
+    public bool AlwaysOnTop { get => IsTopmost; set => IsTopmost = value; }
     public bool StartWithWindows { get; set; }
     public bool EnableNotifications { get; set; } = true;
     public string LastDisplayState { get; set; } = "Compact";
