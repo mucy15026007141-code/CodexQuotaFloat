@@ -52,10 +52,10 @@ public partial class FloatingWindow : Window
 
         if (expand)
         {
-            KeepExpandedWindowVisible();
+            (DataContext as FloatingViewModel)?.NotifyWindowGeometryChanged();
             CompactPanel.Visibility = Visibility.Collapsed;
             ExpandedPanel.Visibility = Visibility.Visible;
-            AnimateHeight(ExpandedHeight, version, () => Height = ExpandedHeight);
+            AnimateHeight(ExpandedHeight, version, () => { Height = ExpandedHeight; (DataContext as FloatingViewModel)?.NotifyWindowGeometryChanged(); });
         }
         else
         {
@@ -66,6 +66,7 @@ public partial class FloatingWindow : Window
                 ExpandedPanel.Visibility = Visibility.Collapsed;
                 CompactPanel.Visibility = Visibility.Visible;
                 Height = CompactHeight;
+                (DataContext as FloatingViewModel)?.NotifyWindowGeometryChanged();
             });
         }
     }
@@ -77,10 +78,14 @@ public partial class FloatingWindow : Window
         BeginAnimation(HeightProperty, animation, HandoffBehavior.SnapshotAndReplace);
     }
 
-    private void KeepExpandedWindowVisible()
+    public void StopAnimationsAndSetCompact()
     {
-        var workArea = SystemParameters.WorkArea;
-        if (Top + ExpandedHeight > workArea.Bottom) Top = Math.Max(workArea.Top, workArea.Bottom - ExpandedHeight);
+        ++_transitionVersion;
+        BeginAnimation(HeightProperty, null);
+        ExpandedPanel.Visibility = Visibility.Collapsed;
+        CompactPanel.Visibility = Visibility.Visible;
+        Height = CompactHeight;
+        UpdateLayout();
     }
 
     private void HeaderDrag(object sender, MouseButtonEventArgs e)

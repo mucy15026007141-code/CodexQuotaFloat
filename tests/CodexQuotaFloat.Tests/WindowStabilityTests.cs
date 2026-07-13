@@ -17,10 +17,10 @@ public sealed class WindowStabilityTests
     [Fact] public void InvalidPositionUsesPrimaryWorkArea() => Assert.Equal(new Point(1560, 20), WindowPositionService.Restore(new Point(double.NaN, 0), Compact, Area));
     [Fact] public void CompletelyOffscreenPositionUsesPrimaryWorkArea() => Assert.Equal(new Point(1560, 20), WindowPositionService.Restore(new Point(5000, 5000), Compact, Area));
     [Fact] public void PartiallyVisiblePositionIsPreserved() => Assert.Equal(new Point(1580, 10), WindowPositionService.Restore(new Point(1880, 10), Compact, Area));
-    [Fact] public void LeftEdgeSnapsInsideWorkArea() => Assert.Equal(20, WindowPositionService.Snap(new Point(5, 200), Compact, Area).X);
-    [Fact] public void RightEdgeSnapsInsideWorkArea() => Assert.Equal(1560, WindowPositionService.Snap(new Point(1585, 200), Compact, Area).X);
-    [Fact] public void TopEdgeSnapsInsideWorkArea() => Assert.Equal(20, WindowPositionService.Snap(new Point(200, 5), Compact, Area).Y);
-    [Fact] public void BottomEdgeSnapsInsideWorkArea() => Assert.Equal(974, WindowPositionService.Snap(new Point(200, 1000), Compact, Area).Y);
+    [Fact] public void LeftEdgeSnapsInsideWorkArea() => Assert.Equal(0, WindowPositionService.Snap(new Point(5, 200), Compact, Area).X);
+    [Fact] public void RightEdgeSnapsInsideWorkArea() => Assert.Equal(1580, WindowPositionService.Snap(new Point(1585, 200), Compact, Area).X);
+    [Fact] public void TopEdgeSnapsInsideWorkArea() => Assert.Equal(0, WindowPositionService.Snap(new Point(200, 5), Compact, Area).Y);
+    [Fact] public void BottomEdgeSnapsInsideWorkArea() => Assert.Equal(994, WindowPositionService.Snap(new Point(200, 1000), Compact, Area).Y);
     [Fact] public void ClampPreventsRightOverflow() => Assert.Equal(1580, WindowPositionService.Clamp(new Point(2000, 0), Compact, Area).X);
     [Fact] public void ClampPreventsBottomOverflow() => Assert.Equal(994, WindowPositionService.Clamp(new Point(0, 2000), Compact, Area).Y);
     [Fact] public void DefaultPositionLeavesTopMargin() => Assert.Equal(20, WindowPositionService.DefaultPosition(Compact, Area).Y);

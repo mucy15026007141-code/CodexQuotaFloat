@@ -28,5 +28,5 @@ public sealed class SettingsService
 
     public static string SerializeForTesting(AppSettings settings) => JsonSerializer.Serialize(settings, SerializerOptions);
 
-    private static double NormalizeCoordinate(double value) => WindowPositionService.IsFinite(value) ? value : double.NaN;
+    private static double NormalizeCoordinate(double value) => WindowPositionService.IsUsableCoordinate(value) ? value : double.NaN;
 }

@@ -65,8 +65,10 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
 
     public void ResetToCompact() => IsExpanded = false;
     public void RestoreExpanded(bool expanded) => IsExpanded = expanded;
+    public void NotifyWindowGeometryChanged() => PropertyChanged?.Invoke(this, new(nameof(WindowGeometryChanged)));
     public void NotifyWindowDragCompleted() => PropertyChanged?.Invoke(this, new(nameof(WindowDragCompleted)));
     public string WindowDragCompleted => string.Empty;
+    public string WindowGeometryChanged => string.Empty;
 
     private async Task RefreshAsync() { IsRefreshing = true; try { await _monitor.RefreshAsync(); } finally { IsRefreshing = false; } }
     private async Task TickAsync() { while (true) { await Task.Delay(1000); OnUi(RaiseAll); } }

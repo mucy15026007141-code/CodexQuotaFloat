@@ -52,4 +52,4 @@
 .\scripts\Build-Installer.ps1
 ```
 
-脚本会先运行 Release 测试，再发布自包含单文件到 `release\CodexQuotaFloat-1.2.0-win-x64\`，生成 `CodexQuotaFloat-Setup-1.2.0-win-x64.exe` 与校验值到 `dist\`。构建产物不会提交到 Git。
+脚本会先运行 Release 测试，再发布自包含单文件到 `release\CodexQuotaFloat-1.2.1-win-x64\`，生成 `CodexQuotaFloat-Setup-1.2.1-win-x64.exe` 与校验值到 `dist\`。构建产物不会提交到 Git。
