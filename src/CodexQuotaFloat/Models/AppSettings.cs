@@ -6,6 +6,7 @@ public sealed class AppSettings
     public double Top { get; set; } = double.NaN;
     public bool IsExpanded { get; set; }
     public bool IsTopmost { get; set; } = true;
+    public bool AvoidTaskbar { get; set; }
     public string? LastMonitorDeviceName { get; set; }
     public DateTimeOffset? LastSuccessfulRefresh { get; set; }
     public bool AlwaysOnTop { get => IsTopmost; set => IsTopmost = value; }

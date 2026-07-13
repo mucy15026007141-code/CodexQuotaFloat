@@ -11,12 +11,23 @@ public readonly record struct WorkArea(double Left, double Top, double Right, do
     public Rect Rect => new(Left, Top, Width, Height);
 }
 
+public readonly record struct MonitorBounds(WorkArea Bounds, WorkArea WorkingArea, bool TaskbarAutoHide, TaskbarEdge? TaskbarLocation)
+{
+    public WorkArea Effective(bool avoidTaskbar)
+    {
+        if (!avoidTaskbar) return Bounds;
+        if (TaskbarAutoHide && (TaskbarLocation is null or TaskbarEdge.Bottom)) return new(Bounds.Left, Bounds.Top, Bounds.Right, Math.Max(Bounds.Top, Bounds.Bottom - 2));
+        return WorkingArea;
+    }
+}
+
 public static class WindowPositionService
 {
     public const double EdgeSnapDistance = 16;
     public const double RestoreMargin = 20;
     public static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
     public static bool IsUsableCoordinate(double value) => IsFinite(value) && Math.Abs(value) <= 10_000_000;
+    public static WorkArea GetEffectiveWindowBounds(MonitorBounds monitor, bool avoidTaskbar) => monitor.Effective(avoidTaskbar);
     public static WpfSize GetEffectiveSize(double actualWidth, double width, double actualHeight, double height, bool expanded)
     {
         var fallbackWidth = 340d;

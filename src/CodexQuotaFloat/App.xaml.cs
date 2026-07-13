@@ -39,10 +39,12 @@ public partial class App : System.Windows.Application
     private StartupService? _startup;
     private bool _exiting;
     private bool _resetOnStartup;
+    private bool _isResettingWindow;
     private readonly SettingsService _settingsService = new();
     private AppSettings _settings = new();
     private DispatcherTimer? _positionSaveTimer;
     private Forms.ToolStripMenuItem? _topmostItem;
+    private Forms.ToolStripMenuItem? _avoidTaskbarItem;
     private Forms.ToolStripMenuItem? _toggleItem;
     private Forms.ToolStripMenuItem? _reconnectItem;
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
@@ -132,6 +134,9 @@ public partial class App : System.Windows.Application
         _topmostItem = new Forms.ToolStripMenuItem("始终置顶") { CheckOnClick = true };
         _topmostItem.Click += (_, _) => SetAlwaysOnTop(_topmostItem.Checked, true);
         menu.Items.Add(_topmostItem);
+        _avoidTaskbarItem = new Forms.ToolStripMenuItem("避让任务栏") { CheckOnClick = true };
+        _avoidTaskbarItem.Click += (_, _) => SetAvoidTaskbar(_avoidTaskbarItem.Checked);
+        menu.Items.Add(_avoidTaskbarItem);
         menu.Items.Add(new Forms.ToolStripMenuItem("重置窗口位置", null, (_, _) => ResetWindowPosition()));
         menu.Items.Add("配置 Codex CLI", null, (_, _) => ShowSetupWizard());
         var startupItem = new Forms.ToolStripMenuItem("开机启动") { Checked = _startup.IsEnabled(), CheckOnClick = true };
@@ -152,6 +157,7 @@ public partial class App : System.Windows.Application
             var settings = await _settingsService.LoadAsync();
             _settings = settings;
             UpdateTopmostMenu();
+            UpdateAvoidTaskbarMenu();
             if (StartupFlow.InitialPresentation(shutdownRequested: false, setupCompleted: settings.SetupCompleted) == StartupPresentation.FloatingWindow)
             {
                 CreateAndShowFloating(startMonitor: true);
@@ -229,7 +235,8 @@ public partial class App : System.Windows.Application
                 if (args.PropertyName == nameof(FloatingViewModel.IsExpanded))
                 {
                     _settings.IsExpanded = _floatingViewModel.IsExpanded;
-                    Dispatcher.BeginInvoke(EnsureWindowInWorkArea);
+                    if (!_isResettingWindow) ReanchorWindowForTransition(_floatingViewModel.IsExpanded);
+                    ApplyTopmost();
                     SchedulePositionSave();
                 }
                 else if (args.PropertyName == nameof(FloatingViewModel.WindowDragCompleted))
@@ -289,6 +296,16 @@ public partial class App : System.Windows.Application
         UpdateTopmostMenu();
     }
 
+    private void SetAvoidTaskbar(bool enabled)
+    {
+        _settings.AvoidTaskbar = enabled;
+        UpdateAvoidTaskbarMenu();
+        MoveWindowToEffectiveBottom();
+        ApplyTopmost();
+        _ = SaveWindowPositionAsync();
+        _log?.Write($"Avoid-taskbar {(enabled ? "enabled" : "disabled")}");
+    }
+
     private void ApplyTopmost()
     {
         if (_window is null || !_window.IsLoaded) return;
@@ -298,6 +315,7 @@ public partial class App : System.Windows.Application
     }
 
     private void UpdateTopmostMenu() { if (_topmostItem is not null) _topmostItem.Checked = _settings.IsTopmost; }
+    private void UpdateAvoidTaskbarMenu() { if (_avoidTaskbarItem is not null) _avoidTaskbarItem.Checked = _settings.AvoidTaskbar; }
     private void UpdateToggleMenu() { if (_toggleItem is not null) _toggleItem.Text = _window?.IsVisible == true ? "隐藏" : "显示"; }
     private double DpiScaleX
     {
@@ -316,12 +334,19 @@ public partial class App : System.Windows.Application
         var scaleX = scale.X; var scaleY = scale.Y;
         return Forms.Screen.FromPoint(new System.Drawing.Point((int)Math.Round((_window?.Left ?? 0) * scaleX), (int)Math.Round((_window?.Top ?? 0) * scaleY)));
     }
-    private WorkArea WorkAreaForScreen(Forms.Screen screen)
+    private MonitorBounds GetMonitorBounds(Forms.Screen screen)
     {
         var bounds = screen.WorkingArea;
         var scale = WindowCoordinateScale();
-        return new(bounds.Left / scale.X, bounds.Top / scale.Y, bounds.Right / scale.X, bounds.Bottom / scale.Y);
+        var full = screen.Bounds;
+        var taskbar = TaskbarService.GetState();
+        return new(
+            new(full.Left / scale.X, full.Top / scale.Y, full.Right / scale.X, full.Bottom / scale.Y),
+            new(bounds.Left / scale.X, bounds.Top / scale.Y, bounds.Right / scale.X, bounds.Bottom / scale.Y),
+            taskbar.AutoHide,
+            taskbar.Edge);
     }
+    private WorkArea WorkAreaForScreen(Forms.Screen screen) => WindowPositionService.GetEffectiveWindowBounds(GetMonitorBounds(screen), _settings.AvoidTaskbar);
     private (double X, double Y) WindowCoordinateScale()
     {
         try
@@ -365,11 +390,12 @@ public partial class App : System.Windows.Application
     {
         if (_window is null) return;
         var screen = CurrentScreen();
-        var area = WorkAreaForScreen(screen);
+        var monitor = GetMonitorBounds(screen);
+        var area = WindowPositionService.GetEffectiveWindowBounds(monitor, _settings.AvoidTaskbar);
         var size = CurrentWindowSize();
         var before = new WpfPoint(_window.Left, _window.Top);
         var result = WindowPositionService.CalculateSnap(before, size, area);
-        _log?.Write($"Bottom placement: top={before.Y:F2}; height={_window.Height:F2}; actualHeight={_window.ActualHeight:F2}; expanded={_floatingViewModel?.IsExpanded == true}; workTopDip={area.Top:F2}; workBottomDip={area.Bottom:F2}; workHeightDip={area.Height:F2}; screenWorkingAreaPx={screen.WorkingArea.Left},{screen.WorkingArea.Top},{screen.WorkingArea.Right},{screen.WorkingArea.Bottom}; dpiScale={DpiScaleX:F3}/{DpiScaleY:F3}; maxTop={result.MaxTop:F2}; targetTop={result.TargetTop:F2}; snappedBottom={result.SnappedToBottom}; finalTop={result.Position.Y:F2}");
+        _log?.Write($"Bottom placement: top={before.Y:F2}; height={_window.Height:F2}; actualHeight={_window.ActualHeight:F2}; expanded={_floatingViewModel?.IsExpanded == true}; workTopDip={area.Top:F2}; workBottomDip={area.Bottom:F2}; workHeightDip={area.Height:F2}; screenBoundsPx={screen.Bounds.Left},{screen.Bounds.Top},{screen.Bounds.Right},{screen.Bounds.Bottom}; screenWorkingAreaPx={screen.WorkingArea.Left},{screen.WorkingArea.Top},{screen.WorkingArea.Right},{screen.WorkingArea.Bottom}; dpiScale={DpiScaleX:F3}/{DpiScaleY:F3}; avoidTaskbar={_settings.AvoidTaskbar}; taskbarAutoHide={monitor.TaskbarAutoHide}; maxTop={result.MaxTop:F2}; targetTop={result.TargetTop:F2}; snappedBottom={result.SnappedToBottom}; finalTop={result.Position.Y:F2}");
         _window.Left = result.Position.X; _window.Top = result.Position.Y; ApplyTopmost();
     }
     private void SchedulePositionSave()
@@ -388,12 +414,31 @@ public partial class App : System.Windows.Application
         _settings.Left = _window.Left; _settings.Top = _window.Top; _settings.IsExpanded = _floatingViewModel?.IsExpanded == true;
         await _settingsService.SaveAsync(_settings);
     }
+    private void MoveWindowToEffectiveBottom()
+    {
+        if (_window is null) return;
+        var area = CurrentWorkArea();
+        var size = CurrentWindowSize();
+        var point = WindowPositionService.Clamp(new WpfPoint(_window.Left, area.Bottom - size.Height), size, area);
+        _window.Left = point.X; _window.Top = point.Y;
+    }
+    private void ReanchorWindowForTransition(bool expanding)
+    {
+        if (_window is null) return;
+        var oldSize = new WpfSize(340, expanding ? FloatingWindow.CompactWindowHeight : FloatingWindow.ExpandedWindowHeight);
+        var newSize = new WpfSize(340, expanding ? FloatingWindow.ExpandedWindowHeight : FloatingWindow.CompactWindowHeight);
+        var oldBottom = _window.Top + oldSize.Height;
+        var point = WindowPositionService.Clamp(new WpfPoint(_window.Left, oldBottom - newSize.Height), newSize, CurrentWorkArea());
+        _window.Left = point.X; _window.Top = point.Y;
+    }
     private void ResetWindowPosition()
     {
         if (_window is null) { CreateAndShowFloating(_floatingViewModel is not null); }
         if (_window is null) return;
-        _window.StopAnimationsAndSetCompact();
+        _isResettingWindow = true;
         _floatingViewModel?.ResetToCompact();
+        _window.StopAnimationsAndSetCompact();
+        _isResettingWindow = false;
         _window.WindowState = WindowState.Normal;
         ShowWindow();
         var primary = WorkAreaForScreen(Forms.Screen.PrimaryScreen ?? CurrentScreen());
