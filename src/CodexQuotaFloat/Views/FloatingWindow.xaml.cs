@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using CodexQuotaFloat.ViewModels;
+using CodexQuotaFloat.Services;
 
 namespace CodexQuotaFloat.Views;
 
@@ -90,18 +91,17 @@ public partial class FloatingWindow : Window
 
     private void HeaderDrag(object sender, MouseButtonEventArgs e)
     {
-        if (e.LeftButton == MouseButtonState.Pressed && !IsButtonSource(e.OriginalSource as DependencyObject))
-        {
-            DragMove();
-            (DataContext as FloatingViewModel)?.NotifyWindowDragCompleted();
-        }
+        if (e.LeftButton != MouseButtonState.Pressed || WindowState != WindowState.Normal || IsInteractiveElement(e.OriginalSource as DependencyObject)) return;
+        e.Handled = true;
+        DragMove();
+        (DataContext as FloatingViewModel)?.NotifyWindowDragCompleted();
     }
 
-    private static bool IsButtonSource(DependencyObject? source)
+    private static bool IsInteractiveElement(DependencyObject? source)
     {
         while (source is not null)
         {
-            if (source is System.Windows.Controls.Primitives.ButtonBase) return true;
+            if (WindowDragPolicy.IsInteractiveType(source.GetType())) return true;
             source = VisualTreeHelper.GetParent(source);
         }
         return false;

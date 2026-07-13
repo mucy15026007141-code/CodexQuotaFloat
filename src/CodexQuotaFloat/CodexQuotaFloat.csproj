@@ -11,9 +11,9 @@
     <Product>CodexQuotaFloat</Product>
     <AssemblyTitle>Codex 额度悬浮窗</AssemblyTitle>
     <Description>用于在 Windows 桌面显示本机 Codex CLI账号的剩余额度。</Description>
-    <Version>1.2.1</Version>
-    <AssemblyVersion>1.2.1.0</AssemblyVersion>
-    <FileVersion>1.2.1.0</FileVersion>
+    <Version>1.2.2</Version>
+    <AssemblyVersion>1.2.2.0</AssemblyVersion>
+    <FileVersion>1.2.2.0</FileVersion>
     <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 

@@ -25,6 +25,7 @@ public static class WindowPositionService
             ValidDimension(actualHeight) ? actualHeight : ValidDimension(height) ? height : fallbackHeight);
     }
     private static bool ValidDimension(double value) => IsFinite(value) && value > 0 && value <= 4096;
+    public readonly record struct SnapResult(WpfPoint Position, double TargetTop, double MaxTop, bool SnappedToBottom);
     public static WpfPoint Restore(WpfPoint position, WpfSize size, WorkArea area)
     {
         if (!IsUsableCoordinate(position.X) || !IsUsableCoordinate(position.Y) || !ValidDimension(size.Width) || !ValidDimension(size.Height)) return DefaultPosition(new WpfSize(340, 46), area);
@@ -33,13 +34,21 @@ public static class WindowPositionService
         return Clamp(position, size, area);
     }
     public static WpfPoint Snap(WpfPoint position, WpfSize size, WorkArea area)
+        => CalculateSnap(position, size, area).Position;
+
+    public static SnapResult CalculateSnap(WpfPoint position, WpfSize size, WorkArea area)
     {
         var x = position.X; var y = position.Y;
+        var snappedToBottom = false;
         if (Math.Abs(x - area.Left) <= EdgeSnapDistance) x = area.Left;
         if (Math.Abs(area.Right - (x + size.Width)) <= EdgeSnapDistance) x = area.Right - size.Width;
         if (Math.Abs(y - area.Top) <= EdgeSnapDistance) y = area.Top;
-        if (Math.Abs(area.Bottom - (y + size.Height)) <= EdgeSnapDistance) y = area.Bottom - size.Height;
-        return Clamp(new WpfPoint(x, y), size, area);
+        if (Math.Abs(area.Bottom - (y + size.Height)) <= EdgeSnapDistance) { y = area.Bottom - size.Height; snappedToBottom = true; }
+        var maxTop = Math.Max(area.Top, area.Bottom - size.Height);
+        if (y > maxTop) { y = maxTop; snappedToBottom = true; }
+        var targetTop = y;
+        var result = Clamp(new WpfPoint(x, y), size, area);
+        return new(result, targetTop, maxTop, snappedToBottom);
     }
     public static WpfPoint Clamp(WpfPoint position, WpfSize size, WorkArea area) => new(Math.Clamp(position.X, area.Left, Math.Max(area.Left, area.Right - size.Width)), Math.Clamp(position.Y, area.Top, Math.Max(area.Top, area.Bottom - size.Height)));
     public static WpfPoint DefaultPosition(WpfSize size, WorkArea area) => new(Math.Max(area.Left, area.Right - size.Width - RestoreMargin), area.Top + RestoreMargin);

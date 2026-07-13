@@ -47,9 +47,8 @@ public partial class App : System.Windows.Application
     private Forms.ToolStripMenuItem? _reconnectItem;
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hWnd);
-    [DllImport("user32.dll")] private static extern nint MonitorFromPoint(NativePoint point, uint flags);
-    [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(nint monitor, int type, out uint dpiX, out uint dpiY);
-    [StructLayout(LayoutKind.Sequential)] private readonly struct NativePoint(int x, int y) { public readonly int X = x; public readonly int Y = y; }
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(nint hWnd, out NativeRect rect);
+    [StructLayout(LayoutKind.Sequential)] private readonly struct NativeRect { public readonly int Left, Top, Right, Bottom; }
     private static readonly nint HwndTopmost = new(-1), HwndNotTopmost = new(-2);
     private const uint SwpNoActivate = 0x0010, SwpNoMove = 0x0002, SwpNoSize = 0x0001;
 
@@ -313,22 +312,30 @@ public partial class App : System.Windows.Application
     private double DpiScaleY => DpiScaleX;
     private Forms.Screen CurrentScreen()
     {
-        var scaleX = DpiScaleX; var scaleY = DpiScaleY;
+        var scale = WindowCoordinateScale();
+        var scaleX = scale.X; var scaleY = scale.Y;
         return Forms.Screen.FromPoint(new System.Drawing.Point((int)Math.Round((_window?.Left ?? 0) * scaleX), (int)Math.Round((_window?.Top ?? 0) * scaleY)));
     }
     private WorkArea WorkAreaForScreen(Forms.Screen screen)
     {
         var bounds = screen.WorkingArea;
-        var scale = ScreenDpiScale(screen);
+        var scale = WindowCoordinateScale();
         return new(bounds.Left / scale.X, bounds.Top / scale.Y, bounds.Right / scale.X, bounds.Bottom / scale.Y);
     }
-    private static (double X, double Y) ScreenDpiScale(Forms.Screen screen)
+    private (double X, double Y) WindowCoordinateScale()
     {
         try
         {
-            var monitor = MonitorFromPoint(new NativePoint(screen.Bounds.Left + 1, screen.Bounds.Top + 1), 2);
-            if (monitor != nint.Zero && GetDpiForMonitor(monitor, 0, out var dpiX, out var dpiY) == 0)
-                return (Math.Max(1, dpiX / 96d), Math.Max(1, dpiY / 96d));
+            if (_window is not null && _window.IsLoaded)
+            {
+                var handle = new System.Windows.Interop.WindowInteropHelper(_window).Handle;
+                if (handle != nint.Zero && GetWindowRect(handle, out var rect))
+                {
+                    var width = CurrentWindowSize().Width;
+                    var height = CurrentWindowSize().Height;
+                    if (width > 0 && height > 0) return (Math.Max(0.5, (rect.Right - rect.Left) / width), Math.Max(0.5, (rect.Bottom - rect.Top) / height));
+                }
+            }
         }
         catch { }
         return (1, 1);
@@ -357,9 +364,13 @@ public partial class App : System.Windows.Application
     private void SnapWindowToWorkArea()
     {
         if (_window is null) return;
+        var screen = CurrentScreen();
+        var area = WorkAreaForScreen(screen);
         var size = CurrentWindowSize();
-        var point = WindowPositionService.Snap(new WpfPoint(_window.Left, _window.Top), size, CurrentWorkArea());
-        _window.Left = point.X; _window.Top = point.Y; ApplyTopmost();
+        var before = new WpfPoint(_window.Left, _window.Top);
+        var result = WindowPositionService.CalculateSnap(before, size, area);
+        _log?.Write($"Bottom placement: top={before.Y:F2}; height={_window.Height:F2}; actualHeight={_window.ActualHeight:F2}; expanded={_floatingViewModel?.IsExpanded == true}; workTopDip={area.Top:F2}; workBottomDip={area.Bottom:F2}; workHeightDip={area.Height:F2}; screenWorkingAreaPx={screen.WorkingArea.Left},{screen.WorkingArea.Top},{screen.WorkingArea.Right},{screen.WorkingArea.Bottom}; dpiScale={DpiScaleX:F3}/{DpiScaleY:F3}; maxTop={result.MaxTop:F2}; targetTop={result.TargetTop:F2}; snappedBottom={result.SnappedToBottom}; finalTop={result.Position.Y:F2}");
+        _window.Left = result.Position.X; _window.Top = result.Position.Y; ApplyTopmost();
     }
     private void SchedulePositionSave()
     {
