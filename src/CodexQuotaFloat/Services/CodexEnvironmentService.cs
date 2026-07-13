@@ -26,7 +26,7 @@ public sealed class CodexEnvironmentService
             if (mode is not null) return SetupStateEvaluator.Evaluate(path, version, mode, false);
             var limits = await connection.RequestAsync("account/rateLimits/read", new { }, cancellationToken);
             var snapshot = UsageParser.Parse(limits);
-            return SetupStateEvaluator.Evaluate(path, version, "chatgpt", snapshot.FiveHour is not null && snapshot.Weekly is not null);
+            return SetupStateEvaluator.Evaluate(path, version, "chatgpt", snapshot.HasCodexBucket && snapshot.IsStructureSupported);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex) { return SetupStateEvaluator.Evaluate(path, version, null, false, ex.GetType().Name); }

@@ -1,5 +1,5 @@
 #define MyAppName "Codex 额度悬浮窗"
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "1.1.2"
 #define MyAppPublisher "Mucy"
 #define MyAppExeName "CodexQuotaFloat.exe"
 #define MyAppId "{{0E1C48D9-5F76-4D78-977A-6C7B772CDDF6}"
@@ -17,7 +17,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist
-OutputBaseFilename=CodexQuotaFloat-Setup-1.1.1-win-x64
+OutputBaseFilename=CodexQuotaFloat-Setup-1.1.2-win-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -34,7 +34,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Name: "startup"; Description: "登录 Windows 时自动启动"; GroupDescription: "启动选项："; Flags: unchecked
 
 [Files]
-Source: "..\release\CodexQuotaFloat-1.1.1-win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\release\CodexQuotaFloat-1.1.2-win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

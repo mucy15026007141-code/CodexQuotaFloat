@@ -7,7 +7,7 @@ public static class SetupStateEvaluator
 {
     public static readonly Version MinimumSupportedVersion = new(0, 144, 1);
 
-    public static SetupCheckResult Evaluate(string? cliPath, string? versionText, string? loginMode, bool hasCompleteQuotaData, string? errorType = null)
+    public static SetupCheckResult Evaluate(string? cliPath, string? versionText, string? loginMode, bool hasUsableQuotaData, string? errorType = null)
     {
         if (string.IsNullOrWhiteSpace(cliPath)) return new(SetupStatus.CodexNotFound);
         var version = ParseVersion(versionText);
@@ -15,7 +15,7 @@ public static class SetupStateEvaluator
         if (!string.IsNullOrWhiteSpace(errorType)) return new(SetupStatus.ConnectionFailed, cliPath, versionText, errorType);
         if (string.Equals(loginMode, "apiKey", StringComparison.OrdinalIgnoreCase)) return new(SetupStatus.ApiKeyMode, cliPath, versionText);
         if (string.Equals(loginMode, "notLoggedIn", StringComparison.OrdinalIgnoreCase)) return new(SetupStatus.NotLoggedIn, cliPath, versionText);
-        return hasCompleteQuotaData ? new(SetupStatus.Ready, cliPath, versionText) : new(SetupStatus.IncompleteQuotaData, cliPath, versionText);
+        return hasUsableQuotaData ? new(SetupStatus.Ready, cliPath, versionText) : new(SetupStatus.IncompleteQuotaData, cliPath, versionText);
     }
 
     public static Version? ParseVersion(string? text)

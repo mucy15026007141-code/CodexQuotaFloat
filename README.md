@@ -1,6 +1,6 @@
 # Codex 额度悬浮窗
 
-`CodexQuotaFloat` 是 Windows 桌面悬浮工具，用于显示本机 Codex CLI 所登录 ChatGPT 账号的 5 小时和每周剩余额度。当前版本：**v1.1.1**。
+`CodexQuotaFloat` 是 Windows 桌面悬浮工具，用于显示本机 Codex CLI 所登录 ChatGPT 账号的 5 小时和每周剩余额度。当前版本：**v1.1.2**。
 
 本工具为非官方第三方工具，与 OpenAI 无隶属或背书关系。它使用自定义程序图标，不使用或复制 OpenAI、ChatGPT、Codex 官方商标图标。
 
@@ -12,7 +12,7 @@
 
 ## 安装与首次配置
 
-运行 `CodexQuotaFloat-Setup-1.1.1-win-x64.exe`。安装不需要管理员权限，默认目录为 `%LocalAppData%\Programs\CodexQuotaFloat`。开始菜单快捷方式默认创建；桌面快捷方式和登录 Windows 时自动启动由安装器选项决定。
+运行 `CodexQuotaFloat-Setup-1.1.2-win-x64.exe`。安装不需要管理员权限，默认目录为 `%LocalAppData%\Programs\CodexQuotaFloat`。开始菜单快捷方式默认创建；桌面快捷方式和登录 Windows 时自动启动由安装器选项决定。
 
 首次运行时，程序会检查本机 Codex CLI、版本、登录状态和额度接口：
 
@@ -27,6 +27,8 @@
 3. 登录后用 `codex login status` 确认状态，再回到程序点击“重新检测”。
 
 程序绝不在后台执行安装命令、自动登录、读取登录网页或保存密码。API Key 模式可能没有 ChatGPT 套餐的两类额度，向导会清楚提示并允许你自行重新登录。
+
+额度窗口由 OpenAI 动态调整。若当前套餐暂时没有 5 小时限制，程序会显示“5h 不限”；限制恢复后会自动恢复百分比显示。
 
 ## 使用、更新与卸载
 
@@ -50,4 +52,4 @@
 .\scripts\Build-Installer.ps1
 ```
 
-脚本会先运行 Release 测试，再发布自包含单文件到 `release\CodexQuotaFloat-1.1.1-win-x64\`，生成安装包与校验值到 `dist\`。构建产物不会提交到 Git。
+脚本会先运行 Release 测试，再发布自包含单文件到 `release\CodexQuotaFloat-1.1.2-win-x64\`，生成安装包与校验值到 `dist\`。构建产物不会提交到 Git。

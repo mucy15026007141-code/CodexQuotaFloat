@@ -38,7 +38,7 @@ public sealed class SetupWizardViewModel : INotifyPropertyChanged
         SetupStatus.NotLoggedIn => "请使用你自己的 ChatGPT账号登录。额度悬浮窗不会接触或保存你的密码。",
         SetupStatus.ApiKeyMode => "当前使用API Key模式。API Key按API用量计费，可能没有ChatGPT套餐的5小时和每周额度，因此悬浮窗无法显示相同的额度数据。",
         SetupStatus.VersionTooOld => "检测到的 Codex CLI 版本低于 0.144.1。请按官方方式更新后重新检测。",
-        SetupStatus.IncompleteQuotaData => "额度接口未返回完整的5小时和每周数据，请确认使用 ChatGPT账号登录后重试。",
+        SetupStatus.IncompleteQuotaData => "暂时无法识别当前Codex额度结构，请更新Codex CLI或查看日志。",
         _ => "找到 Codex CLI，但连接失败或额度接口暂不可用。可重新检测，或复制脱敏诊断信息查看日志。"
     };
     public bool ShowInstallActions => Result.Status is SetupStatus.CodexNotFound or SetupStatus.VersionTooOld;

@@ -12,6 +12,7 @@ public sealed class SetupStateEvaluatorTests
     [Fact] public void ReportsApiKeyMode() => Assert.Equal(SetupStatus.ApiKeyMode, SetupStateEvaluator.Evaluate("codex.cmd", "0.144.1", "apiKey", false).Status);
     [Fact] public void ReportsConnectionFailure() => Assert.Equal(SetupStatus.ConnectionFailed, SetupStateEvaluator.Evaluate("codex.cmd", "0.144.1", null, false, "InvalidOperationException").Status);
     [Fact] public void ReportsIncompleteQuota() => Assert.Equal(SetupStatus.IncompleteQuotaData, SetupStateEvaluator.Evaluate("codex.cmd", "0.144.1", "chatgpt", false).Status);
+    [Fact] public void WeeklyOnlyQuotaIsReady() => Assert.Equal(SetupStatus.Ready, SetupStateEvaluator.Evaluate("codex.cmd", "0.144.1", "chatgpt", true).Status);
     [Fact] public void DoesNotMarkSetupCompleteUnlessReady() => Assert.False(SetupStateEvaluator.Evaluate("codex.cmd", "0.144.1", "chatgpt", false).IsReady);
     [Fact] public void DiagnosticIsRedacted() { var text = DiagnosticInfo.Create(new(SetupStatus.ConnectionFailed, "codex.cmd", "0.144.1", "TimeoutException")); Assert.DoesNotContain("@", text); Assert.DoesNotContain("token", text, StringComparison.OrdinalIgnoreCase); Assert.DoesNotContain("api key", text, StringComparison.OrdinalIgnoreCase); }
     [Fact] public void SingleInstanceNamesAreStable() { Assert.Equal("Local\\CodexQuotaFloat.SingleInstance", "Local\\CodexQuotaFloat.SingleInstance"); }

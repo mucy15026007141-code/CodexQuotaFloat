@@ -15,7 +15,7 @@ public sealed class UsageMonitorService : IAsyncDisposable
     {
         if (_connection is null) return;
         StateChanged?.Invoke(ConnectionState.Refreshing);
-        try { var limits = await _connection.RequestAsync("account/rateLimits/read", new { }); Updated?.Invoke(UsageParser.Parse(limits, _plan)); StateChanged?.Invoke(ConnectionState.Connected); _log.Write("Quota refresh succeeded."); } catch (Exception ex) { _log.Write("Quota refresh failed: " + ex.GetType().Name); StateChanged?.Invoke(ConnectionState.Stale); }
+        try { var limits = await _connection.RequestAsync("account/rateLimits/read", new { }); Publish(UsageParser.Parse(limits, _plan), false); StateChanged?.Invoke(ConnectionState.Connected); _log.Write("Quota refresh succeeded."); } catch (Exception ex) { _log.Write("Quota refresh failed: " + ex.GetType().Name); StateChanged?.Invoke(ConnectionState.Stale); }
     }
     private async Task LoopAsync(CancellationToken token)
     {
@@ -32,7 +32,30 @@ public sealed class UsageMonitorService : IAsyncDisposable
             catch (Exception ex) { _log.Write("Connection failure: " + ex.GetType().Name); StateChanged?.Invoke(ConnectionState.Faulted); await Task.Delay(TimeSpan.FromSeconds(backoff[Math.Min(attempt++, backoff.Length - 1)]), token); }
             finally { if (_connection is not null) await _connection.DisposeAsync(); _connection = null; }
     }
-    private void OnNotification(string method, JsonElement parameters) { if (method == "account/rateLimits/updated") { try { Updated?.Invoke(UsageParser.Parse(parameters, _plan)); } catch { _ = RefreshAsync(); } } }
+    private UsageSnapshot? _lastSnapshot;
+    private void OnNotification(string method, JsonElement parameters) { if (method == "account/rateLimits/updated") { try { Publish(UsageParser.Parse(parameters, _plan), true); } catch { _ = RefreshAsync(); } } }
+    private void Publish(UsageSnapshot snapshot, bool isPartial)
+    {
+        if (isPartial && _lastSnapshot is { } previous)
+        {
+            if (snapshot.Weekly.Availability == RateLimitAvailability.Unavailable && previous.Weekly.Availability == RateLimitAvailability.Available)
+                snapshot = snapshot with { Weekly = previous.Weekly };
+            if (snapshot.FiveHour.Availability == RateLimitAvailability.Unavailable && previous.FiveHour.Availability == RateLimitAvailability.Available)
+                snapshot = snapshot with { FiveHour = previous.FiveHour };
+        }
+        _lastSnapshot = snapshot;
+        LogStructure(snapshot);
+        Updated?.Invoke(snapshot);
+    }
+    private void LogStructure(UsageSnapshot snapshot)
+    {
+        if (!snapshot.HasCodexBucket) { _log.Write("Rate-limit structure unsupported"); return; }
+        _log.Write("Codex rate-limit bucket detected");
+        _log.Write(snapshot.FiveHour.Availability == RateLimitAvailability.Available ? "Five-hour window available" : snapshot.FiveHour.Availability == RateLimitAvailability.Unlimited ? "Five-hour window absent; treating as unlimited" : "Five-hour window unavailable");
+        _log.Write(snapshot.Weekly.Availability == RateLimitAvailability.Available ? "Weekly window available" : "Weekly window unavailable");
+        foreach (var minutes in snapshot.UnknownWindowDurations) _log.Write($"Unknown rate-limit window: {minutes}");
+        if (!snapshot.IsStructureSupported) _log.Write("Rate-limit structure unsupported");
+    }
     private static string? GetPlan(JsonElement account) => account.TryGetProperty("account", out var a) && a.TryGetProperty("planType", out var p) ? p.GetString() : null;
     public async ValueTask DisposeAsync() { _stop?.Cancel(); if (_connection is not null) await _connection.DisposeAsync(); _stop?.Dispose(); }
 }
