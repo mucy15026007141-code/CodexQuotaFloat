@@ -7,4 +7,5 @@ public sealed record UsageSnapshot(
     DateTimeOffset RetrievedAt,
     bool HasCodexBucket,
     bool IsStructureSupported,
-    IReadOnlyList<int> UnknownWindowDurations);
+    IReadOnlyList<int> UnknownWindowDurations,
+    int? BankedResetCount);

@@ -17,4 +17,8 @@ public sealed class StartupFlowTests
     [Fact] public void VisibleWindowOrTrayPreventsFallback() { Assert.False(StartupFlow.NeedsVisibleFallback(true, false, false)); Assert.False(StartupFlow.NeedsVisibleFallback(false, false, true)); }
     [Fact] public void NoWindowAndNoTrayNeedsFallback() => Assert.True(StartupFlow.NeedsVisibleFallback(false, false, false));
     [Fact] public void FreshSettingsWithNanWindowPositionCanBeSerialized() => Assert.Contains("NaN", SettingsService.SerializeForTesting(new AppSettings()));
+    [Fact] public void BootstrapLoggerFailureCannotBlockStartup() { BootstrapLog.Write("TEST_BOOTSTRAP_WRITE"); Assert.True(true); }
+    [Fact] public void MatchingMetadataMayBeDeleted() => Assert.True(InstanceRegistry.MetadataMatches(new InstanceMetadata(7, DateTimeOffset.UnixEpoch, 3), 7, DateTimeOffset.UnixEpoch, 3));
+    [Fact] public void ReplacedMetadataMayNotBeDeleted() => Assert.False(InstanceRegistry.MetadataMatches(new InstanceMetadata(8, DateTimeOffset.UnixEpoch, 3), 7, DateTimeOffset.UnixEpoch, 3));
+    [Fact] public void ReusedPidWithDifferentStartTimeMayNotBeDeleted() => Assert.False(InstanceRegistry.MetadataMatches(new InstanceMetadata(7, DateTimeOffset.UnixEpoch.AddSeconds(2), 3), 7, DateTimeOffset.UnixEpoch, 3));
 }

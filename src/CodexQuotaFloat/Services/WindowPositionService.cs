@@ -31,7 +31,7 @@ public static class WindowPositionService
     public static WpfSize GetEffectiveSize(double actualWidth, double width, double actualHeight, double height, bool expanded)
     {
         var fallbackWidth = 340d;
-        var fallbackHeight = expanded ? 230d : 46d;
+        var fallbackHeight = expanded ? 244d : 46d;
         return new(ValidDimension(actualWidth) ? actualWidth : ValidDimension(width) ? width : fallbackWidth,
             ValidDimension(actualHeight) ? actualHeight : ValidDimension(height) ? height : fallbackHeight);
     }

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
@@ -36,10 +37,13 @@ public partial class App : System.Windows.Application
     private SetupWizardWindow? _wizard;
     private UsageMonitorService? _monitor;
     private LogService? _log;
+    private readonly LogService _bootstrapLog = new();
+    private readonly long _constructedAt = Stopwatch.GetTimestamp();
     private StartupService? _startup;
     private bool _exiting;
     private bool _resetOnStartup;
     private bool _isResettingWindow;
+    private bool _mutexReleased;
     private readonly SettingsService _settingsService = new();
     private AppSettings _settings = new();
     private DispatcherTimer? _positionSaveTimer;
@@ -47,29 +51,40 @@ public partial class App : System.Windows.Application
     private Forms.ToolStripMenuItem? _avoidTaskbarItem;
     private Forms.ToolStripMenuItem? _toggleItem;
     private Forms.ToolStripMenuItem? _reconnectItem;
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hWnd);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint hWnd, out NativeRect rect);
     [StructLayout(LayoutKind.Sequential)] private readonly struct NativeRect { public readonly int Left, Top, Right, Bottom; }
-    private static readonly nint HwndTopmost = new(-1), HwndNotTopmost = new(-2);
-    private const uint SwpNoActivate = 0x0010, SwpNoMove = 0x0002, SwpNoSize = 0x0001;
+    private WindowTopmostService? _topmostService;
+    private StartupTopmostCoordinator? _startupTopmost;
+
+    public App()
+    {
+        BootstrapLog.Write("APP_CREATE_BEGIN");
+        _bootstrapLog.Write($"Startup lifecycle: timestamp={DateTimeOffset.Now:O}; tid={Environment.CurrentManagedThreadId}; event=AppConstructed");
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        BootstrapLog.Write("ONSTARTUP_ENTER");
+        LogStartup("OnStartup");
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         _resetOnStartup = e.Args.Contains("--reset-window", StringComparer.OrdinalIgnoreCase);
-        if (!TryAcquireInstance(e.Args)) return;
         base.OnStartup(e);
+        if (!TryAcquireInstance(e.Args)) { if (e.Args.Contains("--shutdown", StringComparer.OrdinalIgnoreCase)) WaitForPrimaryExit(); BootstrapLog.Write("SECONDARY_PATH_EXIT"); Shutdown(); return; }
 
-        _log = new LogService();
+        _log = _bootstrapLog;
         InstallGlobalExceptionLogging();
         _log.Write("Application starting");
+        var process = Process.GetCurrentProcess();
+        LogStartup($"ProcessIdentity; pid={process.Id}; started={process.StartTime:O}; mainInstance={_ownsMutex}");
         _log.Write("Mutex acquired");
+        InstanceRegistry.WriteCurrent();
         _log.Write("Startup arguments: " + DescribeArguments(e.Args));
 
         if (StartupFlow.InitialPresentation(e.Args.Contains("--shutdown", StringComparer.OrdinalIgnoreCase), setupCompleted: false) == StartupPresentation.Exit)
         {
             _log.Write("Shutdown requested without an existing instance");
+            Environment.ExitCode = 1;
             Shutdown();
             return;
         }
@@ -92,18 +107,22 @@ public partial class App : System.Windows.Application
 
     private bool TryAcquireInstance(string[] args)
     {
+        BootstrapLog.Write("MUTEX_CREATE_BEGIN", MutexName);
         _instanceMutex = new Mutex(initiallyOwned: false, MutexName);
-        try { _ownsMutex = _instanceMutex.WaitOne(0); }
-        catch (AbandonedMutexException) { _ownsMutex = true; }
-        if (SingleInstancePolicy.ShouldContinueStartup(_ownsMutex)) return true;
+        try { _ownsMutex = _instanceMutex.WaitOne(0); BootstrapLog.Write(_ownsMutex ? "MUTEX_OWNED_TRUE" : "MUTEX_OWNED_FALSE"); }
+        catch (AbandonedMutexException) { _ownsMutex = true; BootstrapLog.Write("MUTEX_ABANDONED_RECOVERED"); }
+        if (SingleInstancePolicy.ShouldContinueStartup(_ownsMutex)) { BootstrapLog.Write("PRIMARY_PATH_ENTER"); LogStartup("SingleInstance; main=true"); return true; }
 
+        BootstrapLog.Write("SECONDARY_PATH_ENTER");
         try
         {
             var eventName = SingleInstancePolicy.EventForArguments(args) switch { "shutdown" => ExitEventName, "reset" => ResetEventName, _ => ShowEventName };
             using var existingEvent = EventWaitHandle.OpenExisting(eventName);
             existingEvent.Set();
+            BootstrapLog.Write("SECONDARY_SIGNAL_SUCCESS", eventName);
+            LogStartup($"SecondInstanceRequest; request={eventName}");
         }
-        catch { }
+        catch (Exception ex) { BootstrapLog.Write("SECONDARY_SIGNAL_FAILED", ex.GetType().Name + ": " + ex.Message); }
         _instanceMutex.Dispose();
         _instanceMutex = null;
         Shutdown();
@@ -112,12 +131,14 @@ public partial class App : System.Windows.Application
 
     private void InitializeSignals()
     {
+        BootstrapLog.Write("SECONDARY_SIGNAL_SERVER_START_BEGIN");
         _showExistingEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
         _exitExistingEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName);
         _resetExistingEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ResetEventName);
         _showRegistration = ThreadPool.RegisterWaitForSingleObject(_showExistingEvent, (_, _) => Dispatcher.BeginInvoke(ShowWindow), null, Timeout.Infinite, false);
         _exitRegistration = ThreadPool.RegisterWaitForSingleObject(_exitExistingEvent, (_, _) => Dispatcher.BeginInvoke(() => _ = ExitAsync()), null, Timeout.Infinite, false);
         _resetRegistration = ThreadPool.RegisterWaitForSingleObject(_resetExistingEvent, (_, _) => Dispatcher.BeginInvoke(ResetWindowPosition), null, Timeout.Infinite, false);
+        BootstrapLog.Write("SECONDARY_SIGNAL_SERVER_START_END");
     }
 
     private void InitializeTray()
@@ -127,24 +148,24 @@ public partial class App : System.Windows.Application
         var menu = new Forms.ContextMenuStrip();
         _toggleItem = new Forms.ToolStripMenuItem("显示", null, (_, _) => Toggle());
         menu.Items.Add(_toggleItem);
-        menu.Items.Add("立即刷新", null, async (_, _) => { if (_monitor is not null) await _monitor.RefreshAsync(); });
+        menu.Items.Add("立即刷新", null, (_, _) => _floatingViewModel?.RefreshCommand.Execute(null));
         _reconnectItem = new Forms.ToolStripMenuItem("重新连接 Codex", null, async (_, _) => await ReconnectAsync("tray"));
         menu.Items.Add(_reconnectItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         _topmostItem = new Forms.ToolStripMenuItem("始终置顶") { CheckOnClick = true };
-        _topmostItem.Click += (_, _) => SetAlwaysOnTop(_topmostItem.Checked, true);
+        _topmostItem.Click += (_, _) => _floatingViewModel?.ToggleAlwaysOnTopCommand.Execute(null);
         menu.Items.Add(_topmostItem);
         _avoidTaskbarItem = new Forms.ToolStripMenuItem("避让任务栏") { CheckOnClick = true };
-        _avoidTaskbarItem.Click += (_, _) => SetAvoidTaskbar(_avoidTaskbarItem.Checked);
+        _avoidTaskbarItem.Click += (_, _) => _floatingViewModel?.ToggleAvoidTaskbarCommand.Execute(null);
         menu.Items.Add(_avoidTaskbarItem);
-        menu.Items.Add(new Forms.ToolStripMenuItem("重置窗口位置", null, (_, _) => ResetWindowPosition()));
+        menu.Items.Add(new Forms.ToolStripMenuItem("重置窗口位置", null, (_, _) => _floatingViewModel?.ResetWindowPositionCommand.Execute(null)));
         menu.Items.Add("配置 Codex CLI", null, (_, _) => ShowSetupWizard());
         var startupItem = new Forms.ToolStripMenuItem("开机启动") { Checked = _startup.IsEnabled(), CheckOnClick = true };
         startupItem.CheckedChanged += (_, _) => { try { _startup.SetEnabled(startupItem.Checked); startupItem.Checked = _startup.IsEnabled(); } catch { startupItem.Checked = _startup.IsEnabled(); } };
         menu.Items.Add(startupItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("打开日志目录", null, (_, _) => OpenLogDirectory());
-        menu.Items.Add("退出", null, async (_, _) => await ExitAsync());
+        menu.Items.Add("退出", null, (_, _) => _floatingViewModel?.ExitCommand.Execute(null));
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowWindow();
         _log!.Write("Tray initialized");
@@ -156,6 +177,7 @@ public partial class App : System.Windows.Application
         {
             var settings = await _settingsService.LoadAsync();
             _settings = settings;
+            LogStartup($"SettingsLoaded; requestedAlwaysOnTop={_settings.IsTopmost}; avoidTaskbar={_settings.AvoidTaskbar}");
             UpdateTopmostMenu();
             UpdateAvoidTaskbarMenu();
             if (StartupFlow.InitialPresentation(shutdownRequested: false, setupCompleted: settings.SetupCompleted) == StartupPresentation.FloatingWindow)
@@ -222,32 +244,58 @@ public partial class App : System.Windows.Application
         {
             _monitor = new UsageMonitorService(_log!);
             _floatingViewModel = new FloatingViewModel(_monitor, startMonitor);
+            _floatingViewModel.ConfigureWindowCommands(new FloatingWindowCommandActions
+            {
+                ToggleAlwaysOnTop = () => SetAlwaysOnTop(!_settings.IsTopmost, persist: true),
+                ToggleAvoidTaskbar = () => SetAvoidTaskbar(!_settings.AvoidTaskbar),
+                ResetWindowPosition = ResetWindowPosition,
+                Exit = () => _ = ExitAsync()
+            });
+            _floatingViewModel.SetWindowOptions(_settings.IsTopmost, _settings.AvoidTaskbar);
+            LogStartup("MainWindowConstructing");
+            BootstrapLog.Write("MAIN_WINDOW_CREATE_BEGIN");
             _window = new FloatingWindow { DataContext = _floatingViewModel };
+            BootstrapLog.Write("MAIN_WINDOW_CREATE_END");
+            _topmostService = new WindowTopmostService(_log!);
+            _startupTopmost = new StartupTopmostCoordinator();
+            _startupTopmost.SetRequestedAlwaysOnTop(_settings.IsTopmost);
+            LogStartup("MainWindowConstructed");
+            LogStartup("PositionRestoreStart");
             if (WindowPositionService.IsUsableCoordinate(_settings.Left)) _window.Left = _settings.Left;
             if (WindowPositionService.IsUsableCoordinate(_settings.Top)) _window.Top = _settings.Top;
+            LogStartup("PositionRestoreEnd");
+            LogStartup("ExpandedRestoreStart");
             _floatingViewModel.RestoreExpanded(_settings.IsExpanded);
+            LogStartup("ExpandedRestoreEnd");
             MainWindow = _window;
             _window.Closing += (_, args) => { args.Cancel = true; _window.Hide(); };
-            _window.SourceInitialized += (_, _) => ApplyTopmost();
+            _window.SourceInitialized += (_, _) => { _startupTopmost?.MarkHandleCreated(); LogStartup($"SourceInitialized; hwnd={new System.Windows.Interop.WindowInteropHelper(_window).Handle}"); };
+            _window.Loaded += (_, _) => LogStartup("Loaded");
+            _window.ContentRendered += (_, _) => LogStartup("ContentRendered");
             _window.LocationChanged += (_, _) => SchedulePositionSave();
+            _window.StateChanged += (_, _) => LogStartup("StateChanged");
+            _window.IsVisibleChanged += (_, _) => { LogStartup($"IsVisibleChanged; visible={_window.IsVisible}"); if (_window.IsVisible) _startupTopmost?.MarkWindowShown(); };
+            _window.Activated += (_, _) => LogStartup("Activated");
+            _window.Deactivated += (_, _) => { LogStartup("Deactivated"); if (_startupTopmost?.StartupReady == true) _topmostService?.RepairIfNeeded(_window, _settings.IsTopmost, "Deactivated"); };
             _floatingViewModel.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(FloatingViewModel.IsExpanded))
                 {
                     _settings.IsExpanded = _floatingViewModel.IsExpanded;
                     if (!_isResettingWindow) ReanchorWindowForTransition(_floatingViewModel.IsExpanded);
-                    ApplyTopmost();
+                    ApplyTopmost("ExpandedStateChanged");
                     SchedulePositionSave();
                 }
                 else if (args.PropertyName == nameof(FloatingViewModel.WindowDragCompleted))
                 {
                     SnapWindowToWorkArea();
+                    ApplyTopmost("DragCompleted");
                     SchedulePositionSave();
                 }
                 else if (args.PropertyName == nameof(FloatingViewModel.WindowGeometryChanged))
                 {
                     EnsureWindowInWorkArea();
-                    ApplyTopmost();
+                    ApplyTopmost("GeometryChanged");
                     SchedulePositionSave();
                 }
             };
@@ -282,15 +330,20 @@ public partial class App : System.Windows.Application
     {
         if (_window is null) return;
         _window.Show();
+        LogStartup("FirstShow");
+        _startupTopmost?.MarkWindowShown();
+        LogStartup("AvoidTaskbarApplyStart");
         EnsureWindowInWorkArea();
-        ApplyTopmost();
+        LogStartup("AvoidTaskbarApplyEnd");
+        _ = CompleteStartupAsync();
         UpdateToggleMenu();
     }
 
     private void SetAlwaysOnTop(bool enabled, bool persist)
     {
         _settings.IsTopmost = enabled;
-        if (_window is not null) { _window.Topmost = enabled; ApplyTopmost(); }
+        _startupTopmost?.SetRequestedAlwaysOnTop(enabled);
+        if (_window is not null) ApplyTopmost("AlwaysOnTopChanged");
         _log?.Write($"Always-on-top {(enabled ? "enabled" : "disabled")}");
         if (persist) _ = _settingsService.SaveAsync(_settings);
         UpdateTopmostMenu();
@@ -301,21 +354,34 @@ public partial class App : System.Windows.Application
         _settings.AvoidTaskbar = enabled;
         UpdateAvoidTaskbarMenu();
         MoveWindowToEffectiveBottom();
-        ApplyTopmost();
+        ApplyTopmost("AvoidTaskbarChanged");
         _ = SaveWindowPositionAsync();
         _log?.Write($"Avoid-taskbar {(enabled ? "enabled" : "disabled")}");
     }
 
-    private void ApplyTopmost()
+    private void ApplyTopmost(string reason)
     {
-        if (_window is null || !_window.IsLoaded) return;
-        _window.Topmost = _settings.IsTopmost;
-        var handle = new System.Windows.Interop.WindowInteropHelper(_window).Handle;
-        if (handle != nint.Zero) SetWindowPos(handle, _settings.IsTopmost ? HwndTopmost : HwndNotTopmost, 0, 0, 0, 0, SwpNoActivate | SwpNoMove | SwpNoSize);
+        if (_window is null) return;
+        if (_startupTopmost?.StartupReady != true) { LogStartup($"TopmostDeferred; reason={reason}; stage={_startupTopmost?.Stage}"); return; }
+        _topmostService?.ApplyAsync(_window, _settings.IsTopmost, reason);
     }
 
-    private void UpdateTopmostMenu() { if (_topmostItem is not null) _topmostItem.Checked = _settings.IsTopmost; }
-    private void UpdateAvoidTaskbarMenu() { if (_avoidTaskbarItem is not null) _avoidTaskbarItem.Checked = _settings.AvoidTaskbar; }
+    private async Task CompleteStartupAsync()
+    {
+        if (_window is null || _topmostService is null || _startupTopmost is null) return;
+        _startupTopmost.MarkLayoutRestored();
+        if (!_startupTopmost.TryBeginFinalApply()) return;
+        await Dispatcher.InvokeAsync(() => LogStartup("FirstDispatcherIdle"), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        LogStartup("FinalTopmostApplyStart");
+        var success = await _topmostService.ApplyAfterStartupReadyAsync(_window, _startupTopmost.RequestedAlwaysOnTop, "StartupReady");
+        _startupTopmost.Complete(_topmostService.Verify(_window, "StartupReady:final"));
+        if (!success && _startupTopmost.RequestedAlwaysOnTop) _log?.Write("STARTUP_TOPMOST_VERIFICATION_FAILED");
+        if (!success && _startupTopmost.RequestedAlwaysOnTop) _log?.Write("STARTUP_TOPMOST_REPAIR_FAILED");
+        LogStartup($"StartupInitializationCompleted; ready={_startupTopmost.StartupReady}; requested={_startupTopmost.RequestedAlwaysOnTop}; actual={_startupTopmost.ActualTopmost}");
+    }
+
+    private void UpdateTopmostMenu() { if (_topmostItem is not null) _topmostItem.Checked = _settings.IsTopmost; _floatingViewModel?.SetWindowOptions(_settings.IsTopmost, _settings.AvoidTaskbar); }
+    private void UpdateAvoidTaskbarMenu() { if (_avoidTaskbarItem is not null) _avoidTaskbarItem.Checked = _settings.AvoidTaskbar; _floatingViewModel?.SetWindowOptions(_settings.IsTopmost, _settings.AvoidTaskbar); }
     private void UpdateToggleMenu() { if (_toggleItem is not null) _toggleItem.Text = _window?.IsVisible == true ? "隐藏" : "显示"; }
     private double DpiScaleX
     {
@@ -396,7 +462,7 @@ public partial class App : System.Windows.Application
         var before = new WpfPoint(_window.Left, _window.Top);
         var result = WindowPositionService.CalculateSnap(before, size, area);
         _log?.Write($"Bottom placement: top={before.Y:F2}; height={_window.Height:F2}; actualHeight={_window.ActualHeight:F2}; expanded={_floatingViewModel?.IsExpanded == true}; workTopDip={area.Top:F2}; workBottomDip={area.Bottom:F2}; workHeightDip={area.Height:F2}; screenBoundsPx={screen.Bounds.Left},{screen.Bounds.Top},{screen.Bounds.Right},{screen.Bounds.Bottom}; screenWorkingAreaPx={screen.WorkingArea.Left},{screen.WorkingArea.Top},{screen.WorkingArea.Right},{screen.WorkingArea.Bottom}; dpiScale={DpiScaleX:F3}/{DpiScaleY:F3}; avoidTaskbar={_settings.AvoidTaskbar}; taskbarAutoHide={monitor.TaskbarAutoHide}; maxTop={result.MaxTop:F2}; targetTop={result.TargetTop:F2}; snappedBottom={result.SnappedToBottom}; finalTop={result.Position.Y:F2}");
-        _window.Left = result.Position.X; _window.Top = result.Position.Y; ApplyTopmost();
+        _window.Left = result.Position.X; _window.Top = result.Position.Y; ApplyTopmost("SnapCompleted");
     }
     private void SchedulePositionSave()
     {
@@ -445,20 +511,20 @@ public partial class App : System.Windows.Application
         var compact = new WpfSize(_window.Width > 0 && WindowPositionService.IsFinite(_window.Width) ? _window.Width : 340, FloatingWindow.CompactWindowHeight);
         var point = WindowPositionService.Clamp(WindowPositionService.DefaultPosition(compact, primary), compact, primary);
         _window.Left = point.X; _window.Top = point.Y;
-        ApplyTopmost(); _ = SaveWindowPositionAsync(); _log?.Write("Window position reset");
+        ApplyTopmost("ResetWindow"); _ = SaveWindowPositionAsync(); _log?.Write("Window position reset");
     }
     private async Task ReconnectAsync(string reason)
     {
         if (_monitor is null || _exiting) return;
         _reconnectItem?.Enabled = false; _reconnectItem?.Text = "正在重新连接…";
-        try { await _monitor.ReconnectAsync(reason); ApplyTopmost(); }
+        try { await _monitor.ReconnectAsync(reason); ApplyTopmost("Reconnect:" + reason); }
         finally { _reconnectItem?.Text = "重新连接 Codex"; _reconnectItem?.Enabled = true; }
     }
-    private void OnDisplaySettingsChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(() => { EnsureWindowInWorkArea(); ApplyTopmost(); SchedulePositionSave(); _log?.Write("Display settings changed"); });
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(() => { EnsureWindowInWorkArea(); ApplyTopmost("DisplaySettingsChanged"); SchedulePositionSave(); _log?.Write("Display settings changed"); });
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
     {
         if (e.Mode == PowerModes.Suspend) { _log?.Write("System suspend detected"); _monitor?.MarkOffline(); }
-        else if (e.Mode == PowerModes.Resume) { _log?.Write("System resume detected"); _ = Dispatcher.InvokeAsync(async () => { await Task.Delay(3000); await ReconnectAsync("resume"); _log?.Write("Reconnect succeeded after resume"); }); }
+        else if (e.Mode == PowerModes.Resume) { _log?.Write("System resume detected"); _ = Dispatcher.InvokeAsync(async () => { await Task.Delay(3000); await ReconnectAsync("resume"); ApplyTopmost("PowerResume"); _log?.Write("Reconnect succeeded after resume"); }); }
     }
     private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
     {
@@ -475,11 +541,42 @@ public partial class App : System.Windows.Application
     {
         if (_exiting) return;
         _exiting = true;
-        if (_tray is not null) _tray.Visible = false;
+        BootstrapLog.Write("SHUTDOWN_BEGIN");
+        _topmostService?.SetExiting();
+        BootstrapLog.Write("BACKGROUND_CANCEL_BEGIN");
         if (_monitor is not null) await _monitor.DisposeAsync();
+        BootstrapLog.Write("BACKGROUND_CANCEL_END");
+        BootstrapLog.Write("SETTINGS_SAVE_BEGIN");
         await SaveWindowPositionAsync();
+        BootstrapLog.Write("SETTINGS_SAVE_END");
+        BootstrapLog.Write("TRAY_DISPOSE_BEGIN");
+        if (_tray is not null) { _tray.Visible = false; _tray.Dispose(); _tray = null; }
+        BootstrapLog.Write("TRAY_DISPOSE_END");
+        InstanceRegistry.TryDeleteCurrent();
+        ReleaseMutex();
+        BootstrapLog.Write("APPLICATION_SHUTDOWN");
         Shutdown();
     }
+
+    private void WaitForPrimaryExit()
+    {
+        var instance = InstanceRegistry.ReadLive();
+        if (instance is null) { Environment.ExitCode = 1; BootstrapLog.Write("SHUTDOWN_NO_LIVE_INSTANCE"); return; }
+        BootstrapLog.Write("SHUTDOWN_SIGNAL_RECEIVED", $"pid={instance.ProcessId}");
+        var complete = InstanceRegistry.WaitForExit(instance, TimeSpan.FromSeconds(5));
+        Environment.ExitCode = complete ? 0 : 2;
+        BootstrapLog.Write(complete ? "SHUTDOWN_CONFIRMED_EXIT" : "SHUTDOWN_WAIT_TIMEOUT", $"pid={instance.ProcessId}");
+    }
+
+    private void ReleaseMutex()
+    {
+        if (!_ownsMutex || _mutexReleased || _instanceMutex is null) return;
+        BootstrapLog.Write("MUTEX_RELEASE_BEGIN");
+        try { _instanceMutex.ReleaseMutex(); }
+        finally { _instanceMutex.Dispose(); _instanceMutex = null; _mutexReleased = true; BootstrapLog.Write("MUTEX_RELEASE_END"); }
+    }
+
+    private void LogStartup(string message) => _bootstrapLog.Write($"Startup lifecycle: timestamp={DateTimeOffset.Now:O}; elapsedMs={Stopwatch.GetElapsedTime(_constructedAt).TotalMilliseconds:F0}; tid={Environment.CurrentManagedThreadId}; {message}");
 
     private void InstallGlobalExceptionLogging()
     {
@@ -509,13 +606,13 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        BootstrapLog.Write("PROCESS_EXIT_BEGIN");
         _showRegistration?.Unregister(null);
         _exitRegistration?.Unregister(null);
         _showExistingEvent?.Dispose();
         _exitExistingEvent?.Dispose();
         _resetExistingEvent?.Dispose();
-        if (_ownsMutex) _instanceMutex?.ReleaseMutex();
-        _instanceMutex?.Dispose();
+        ReleaseMutex();
         _tray?.Dispose();
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;

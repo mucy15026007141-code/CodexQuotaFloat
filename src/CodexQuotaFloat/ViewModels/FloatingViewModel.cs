@@ -14,6 +14,7 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
     private bool _isExpanded;
     private bool _isRefreshing;
     private bool _monitorStarted;
+    private FloatingWindowCommandActions? _windowCommands;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public FloatingViewModel(UsageMonitorService monitor, bool startMonitor = true)
@@ -23,12 +24,20 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
         _monitor.StateChanged += state => OnUi(() => { _state = state; RaiseAll(); });
         RefreshCommand = new AsyncCommand(RefreshAsync, () => !IsRefreshing);
         ToggleExpandedCommand = new RelayCommand(() => { IsExpanded = !IsExpanded; });
+        ToggleAlwaysOnTopCommand = new RelayCommand(() => _windowCommands?.ToggleAlwaysOnTop());
+        ToggleAvoidTaskbarCommand = new RelayCommand(() => _windowCommands?.ToggleAvoidTaskbar());
+        ResetWindowPositionCommand = new RelayCommand(() => _windowCommands?.ResetWindowPosition());
+        ExitCommand = new RelayCommand(() => _windowCommands?.Exit());
         if (startMonitor) StartMonitoring();
         _ = TickAsync();
     }
 
     public ICommand RefreshCommand { get; }
     public ICommand ToggleExpandedCommand { get; }
+    public ICommand ToggleAlwaysOnTopCommand { get; }
+    public ICommand ToggleAvoidTaskbarCommand { get; }
+    public ICommand ResetWindowPositionCommand { get; }
+    public ICommand ExitCommand { get; }
     public bool IsExpanded { get => _isExpanded; private set { if (_isExpanded == value) return; _isExpanded = value; Raise(nameof(IsExpanded)); Raise(nameof(ExpandButtonText)); } }
     public bool IsRefreshing { get => _isRefreshing; private set { if (_isRefreshing == value) return; _isRefreshing = value; Raise(nameof(IsRefreshing)); Raise(nameof(RefreshButtonText)); ((AsyncCommand)RefreshCommand).NotifyCanExecuteChanged(); } }
     public int FivePercent => _snapshot?.FiveHour.Availability == RateLimitAvailability.Available ? _snapshot.FiveHour.RemainingPercent : 0;
@@ -49,6 +58,10 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
     public string LastSuccessfulUpdate => _snapshot is null ? "暂不可用" : _snapshot.RetrievedAt.ToString("HH:mm:ss");
     public string ExpandButtonText => IsExpanded ? "收起 ˄" : "展开 ˅";
     public string RefreshButtonText => IsRefreshing ? "刷新中…" : "刷新";
+    public int? BankedResetCount => _snapshot?.BankedResetCount;
+    public string BankedResetDisplay => FormatBankedResetCount(BankedResetCount);
+    public bool IsAlwaysOnTop { get; private set; }
+    public bool IsAvoidTaskbar { get; private set; }
 
     public void StartMonitoring()
     {
@@ -65,6 +78,14 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
 
     public void ResetToCompact() => IsExpanded = false;
     public void RestoreExpanded(bool expanded) => IsExpanded = expanded;
+    public void ConfigureWindowCommands(FloatingWindowCommandActions commands) => _windowCommands = commands;
+    public void SetWindowOptions(bool isAlwaysOnTop, bool isAvoidTaskbar)
+    {
+        IsAlwaysOnTop = isAlwaysOnTop;
+        IsAvoidTaskbar = isAvoidTaskbar;
+        Raise(nameof(IsAlwaysOnTop));
+        Raise(nameof(IsAvoidTaskbar));
+    }
     public void NotifyWindowGeometryChanged() => PropertyChanged?.Invoke(this, new(nameof(WindowGeometryChanged)));
     public void NotifyWindowDragCompleted() => PropertyChanged?.Invoke(this, new(nameof(WindowDragCompleted)));
     public string WindowDragCompleted => string.Empty;
@@ -74,10 +95,19 @@ public sealed class FloatingViewModel : INotifyPropertyChanged
     private async Task TickAsync() { while (true) { await Task.Delay(1000); OnUi(RaiseAll); } }
     private static string Until(RateLimitWindow window) => window.ResetLocal is { } reset ? (reset - DateTimeOffset.Now) switch { var span when span.TotalSeconds <= 0 => "即将刷新", var span when span.TotalDays >= 1 => $"{(int)span.TotalDays}天{span.Hours}小时后刷新", var span => $"{span.Hours}小时{span.Minutes}分钟后刷新" } : "刷新时间不可用";
     public static string FormatWindowValue(RateLimitWindow? window) => window?.Availability == RateLimitAvailability.Available ? $"{window.RemainingPercent}%" : window?.Availability == RateLimitAvailability.Unlimited ? "不限" : "暂不可用";
+    public static string FormatBankedResetCount(int? count) => count is { } value ? $"{value} 次" : "--";
     private static string FormatReset(RateLimitWindow? window) => window?.Availability == RateLimitAvailability.Available && window.ResetLocal is { } reset ? (reset.Date == DateTimeOffset.Now.Date ? $"今天 {reset:HH:mm}" : $"{reset:M月d日 HH:mm}") : "暂不可用";
     private void OnUi(Action action) { if (System.Windows.Application.Current?.Dispatcher?.CheckAccess() == true) action(); else System.Windows.Application.Current?.Dispatcher?.Invoke(action); }
-    private void RaiseAll() { foreach (var property in new[] { nameof(FivePercent), nameof(WeekPercent), nameof(FiveCompactPercent), nameof(WeekCompactPercent), nameof(FiveDisplay), nameof(WeekDisplay), nameof(CompactTitle), nameof(IsStale), nameof(FiveCountdown), nameof(WeekCountdown), nameof(FiveResetAt), nameof(WeekResetAt), nameof(Plan), nameof(Status), nameof(UpdatedTime), nameof(LastSuccessfulUpdate) }) Raise(property); }
+    private void RaiseAll() { foreach (var property in new[] { nameof(FivePercent), nameof(WeekPercent), nameof(FiveCompactPercent), nameof(WeekCompactPercent), nameof(FiveDisplay), nameof(WeekDisplay), nameof(CompactTitle), nameof(IsStale), nameof(FiveCountdown), nameof(WeekCountdown), nameof(FiveResetAt), nameof(WeekResetAt), nameof(Plan), nameof(Status), nameof(UpdatedTime), nameof(LastSuccessfulUpdate), nameof(BankedResetCount), nameof(BankedResetDisplay) }) Raise(property); }
     private void Raise(string property) => PropertyChanged?.Invoke(this, new(property));
+}
+
+public sealed class FloatingWindowCommandActions
+{
+    public required Action ToggleAlwaysOnTop { get; init; }
+    public required Action ToggleAvoidTaskbar { get; init; }
+    public required Action ResetWindowPosition { get; init; }
+    public required Action Exit { get; init; }
 }
 
 public sealed class RelayCommand(Action execute) : ICommand { public event EventHandler? CanExecuteChanged { add { } remove { } } public bool CanExecute(object? _) => true; public void Execute(object? _) => execute(); }

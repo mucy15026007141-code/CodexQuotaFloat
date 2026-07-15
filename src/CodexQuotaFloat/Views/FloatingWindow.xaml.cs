@@ -11,7 +11,7 @@ namespace CodexQuotaFloat.Views;
 public partial class FloatingWindow : Window
 {
     private const double CompactHeight = 46;
-    private const double ExpandedHeight = 230;
+    private const double ExpandedHeight = 244;
     private int _transitionVersion;
     public const double CompactWindowHeight = CompactHeight;
     public const double ExpandedWindowHeight = ExpandedHeight;

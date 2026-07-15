@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $projectRoot 'CodexQuotaFloat.slnx'
 $project = Join-Path $projectRoot 'src\CodexQuotaFloat\CodexQuotaFloat.csproj'
-$release = Join-Path $projectRoot 'release\CodexQuotaFloat-1.0.0-win-x64'
+$release = Join-Path $projectRoot 'release\CodexQuotaFloat-1.3.0-win-x64'
 $installDir = Join-Path $env:LOCALAPPDATA 'Programs\CodexQuotaFloat'
 $exeName = 'CodexQuotaFloat.exe'
 
