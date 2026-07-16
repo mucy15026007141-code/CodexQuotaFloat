@@ -4,6 +4,26 @@
 
 本工具为非官方第三方工具，与 OpenAI 无隶属或背书关系。它使用自定义程序图标，不使用或复制 OpenAI、ChatGPT、Codex 官方商标图标。
 
+## 效果预览
+
+### 紧凑模式
+
+![紧凑模式](docs/images/compact-mode.png)
+
+快速查看5小时额度、每周额度和刷新状态。
+
+### 展开模式
+
+![展开模式](docs/images/expanded-mode.png)
+
+查看额度进度、刷新时间和可用额度重置机会。
+
+### 悬浮窗右键菜单
+
+![悬浮窗右键菜单](docs/images/context-menu.png)
+
+直接在悬浮窗上切换始终置顶、任务栏避让、刷新和重置位置。
+
 ## 系统要求
 
 - Windows 10/11 x64、网络连接
