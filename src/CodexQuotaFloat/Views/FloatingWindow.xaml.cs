@@ -10,11 +10,11 @@ namespace CodexQuotaFloat.Views;
 
 public partial class FloatingWindow : Window
 {
-    private const double CompactHeight = 46;
-    private const double ExpandedHeight = 244;
     private int _transitionVersion;
-    public const double CompactWindowHeight = CompactHeight;
-    public const double ExpandedWindowHeight = ExpandedHeight;
+    public const double CompactWindowHeight = FloatingWindowLayoutMetrics.CompactHeight;
+    public const double ExpandedWindowHeight = FloatingWindowLayoutMetrics.MinimumExpandedHeight;
+    public double ExpandedTargetHeight { get; private set; } = ExpandedWindowHeight;
+    public event Action<string>? ExpandedLayoutMeasured;
 
     public FloatingWindow()
     {
@@ -42,7 +42,7 @@ public partial class FloatingWindow : Window
     {
         CompactPanel.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
         ExpandedPanel.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-        Height = expanded ? ExpandedHeight : CompactHeight;
+        Height = expanded ? MeasureExpandedHeight() : CompactWindowHeight;
     }
 
     private void TransitionPanels(bool expand)
@@ -56,20 +56,73 @@ public partial class FloatingWindow : Window
             (DataContext as FloatingViewModel)?.NotifyWindowGeometryChanged();
             CompactPanel.Visibility = Visibility.Collapsed;
             ExpandedPanel.Visibility = Visibility.Visible;
-            AnimateHeight(ExpandedHeight, version, () => { Height = ExpandedHeight; (DataContext as FloatingViewModel)?.NotifyWindowGeometryChanged(); });
+            var expandedHeight = MeasureExpandedHeight();
+            AnimateHeight(expandedHeight, version, () =>
+            {
+                Height = expandedHeight;
+                UpdateLayout();
+                RecordExpandedLayout("arranged");
+                (DataContext as FloatingViewModel)?.NotifyWindowGeometryChanged();
+            });
         }
         else
         {
             // Keep the detail panel visible until the reverse animation completes.
-            AnimateHeight(CompactHeight, version, () =>
+            AnimateHeight(CompactWindowHeight, version, () =>
             {
                 if (version != _transitionVersion) return;
                 ExpandedPanel.Visibility = Visibility.Collapsed;
                 CompactPanel.Visibility = Visibility.Visible;
-                Height = CompactHeight;
+                Height = CompactWindowHeight;
                 (DataContext as FloatingViewModel)?.NotifyWindowGeometryChanged();
             });
         }
+    }
+
+    public static double ResolveExpandedHeight(double desiredHeight) =>
+        FloatingWindowLayoutMetrics.ResolveExpandedHeight(desiredHeight);
+
+    public double MeasureExpandedLayout()
+    {
+        var visibility = ExpandedPanel.Visibility;
+        ExpandedPanel.Visibility = Visibility.Visible;
+        ExpandedPanel.Measure(new System.Windows.Size(Width, double.PositiveInfinity));
+        ExpandedTargetHeight = ResolveExpandedHeight(ExpandedPanel.DesiredSize.Height);
+        ExpandedPanel.Arrange(new Rect(0, 0, Width, ExpandedTargetHeight));
+        RecordExpandedLayout("diagnostic");
+        ExpandedPanel.Visibility = visibility;
+        return ExpandedTargetHeight;
+    }
+
+    private double MeasureExpandedHeight()
+    {
+        ExpandedPanel.Measure(new System.Windows.Size(Width, double.PositiveInfinity));
+        ExpandedTargetHeight = ResolveExpandedHeight(ExpandedPanel.DesiredSize.Height);
+        RecordExpandedLayout("measured");
+        return ExpandedTargetHeight;
+    }
+
+    private void RecordExpandedLayout(string phase)
+    {
+        var rows = ExpandedRoot.RowDefinitions;
+        var padding = ExpandedPanel.Padding;
+        var actionBarBottom = ExpandedActionBar.TranslatePoint(new System.Windows.Point(0, ExpandedActionBar.ActualHeight), ExpandedPanel).Y;
+        var actionBarBottomInset = ExpandedPanel.ActualHeight - actionBarBottom;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var margins = ExpandedHeader.Margin.Top + ExpandedHeader.Margin.Bottom
+            + ExpandedQuotaContent.Margin.Top + ExpandedQuotaContent.Margin.Bottom
+            + FiveHourSection.Margin.Top + FiveHourSection.Margin.Bottom
+            + WeeklySection.Margin.Top + WeeklySection.Margin.Bottom
+            + ResetCreditsSection.Margin.Top + ResetCreditsSection.Margin.Bottom;
+        ExpandedLayoutMeasured?.Invoke(
+            $"ExpandedLayout phase={phase} desired={ExpandedPanel.DesiredSize.Height:F2} actualWindow={ActualHeight:F2} " +
+            $"panelActual={ExpandedPanel.ActualHeight:F2} rootDesired={ExpandedRoot.DesiredSize.Height:F2} " +
+            $"rows=[{rows[0].ActualHeight:F2},{rows[1].ActualHeight:F2},{rows[2].ActualHeight:F2}] " +
+            $"header={ExpandedHeader.ActualHeight:F2} fiveHour={FiveHourSection.ActualHeight:F2} " +
+            $"weekly={WeeklySection.ActualHeight:F2} reset={ResetCreditsSection.ActualHeight:F2} " +
+            $"actionBar={ExpandedActionBar.ActualHeight:F2} actionBarBottomInset={actionBarBottomInset:F2} " +
+            $"padding={padding.Top + padding.Bottom:F2} dpiScale={dpi.DpiScaleY:F2} " +
+            $"margins={margins:F2} minimum={ExpandedWindowHeight:F2} target={ExpandedTargetHeight:F2}");
     }
 
     private void AnimateHeight(double target, int version, Action completed)
@@ -85,7 +138,7 @@ public partial class FloatingWindow : Window
         BeginAnimation(HeightProperty, null);
         ExpandedPanel.Visibility = Visibility.Collapsed;
         CompactPanel.Visibility = Visibility.Visible;
-        Height = CompactHeight;
+        Height = CompactWindowHeight;
         UpdateLayout();
     }
 

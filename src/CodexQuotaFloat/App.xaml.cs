@@ -255,6 +255,8 @@ public partial class App : System.Windows.Application
             LogStartup("MainWindowConstructing");
             BootstrapLog.Write("MAIN_WINDOW_CREATE_BEGIN");
             _window = new FloatingWindow { DataContext = _floatingViewModel };
+            _window.ExpandedLayoutMeasured += message => _log?.Write(message);
+            _window.MeasureExpandedLayout();
             BootstrapLog.Write("MAIN_WINDOW_CREATE_END");
             _topmostService = new WindowTopmostService(_log!);
             _startupTopmost = new StartupTopmostCoordinator();
@@ -491,8 +493,9 @@ public partial class App : System.Windows.Application
     private void ReanchorWindowForTransition(bool expanding)
     {
         if (_window is null) return;
-        var oldSize = new WpfSize(340, expanding ? FloatingWindow.CompactWindowHeight : FloatingWindow.ExpandedWindowHeight);
-        var newSize = new WpfSize(340, expanding ? FloatingWindow.ExpandedWindowHeight : FloatingWindow.CompactWindowHeight);
+        var expandedHeight = _window.ExpandedTargetHeight;
+        var oldSize = new WpfSize(340, expanding ? FloatingWindow.CompactWindowHeight : expandedHeight);
+        var newSize = new WpfSize(340, expanding ? expandedHeight : FloatingWindow.CompactWindowHeight);
         var oldBottom = _window.Top + oldSize.Height;
         var point = WindowPositionService.Clamp(new WpfPoint(_window.Left, oldBottom - newSize.Height), newSize, CurrentWorkArea());
         _window.Left = point.X; _window.Top = point.Y;

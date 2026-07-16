@@ -33,7 +33,7 @@ public sealed class JsonRpcConnection : IAsyncDisposable
         _process = Process.Start(psi) ?? throw new InvalidOperationException("Unable to start Codex App Server.");
         _ = Task.Run(ReadLoopAsync);
         _ = Task.Run(ReadErrorsAsync);
-        await RequestAsync("initialize", new { clientInfo = new { name = "codex_quota_float", title = "Codex Quota Float", version = "1.3.0" } }, timeout: TimeSpan.FromSeconds(30));
+        await RequestAsync("initialize", new { clientInfo = new { name = "codex_quota_float", title = "Codex Quota Float", version = "1.3.1" } }, timeout: TimeSpan.FromSeconds(30));
         await NotifyAsync("initialized", new { });
     }
 
